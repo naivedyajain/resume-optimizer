@@ -10,6 +10,12 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
     
+    <!-- PDF.js for parsing PDFs -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    
+    <!-- Mammoth.js for parsing DOCX -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    
     <style>
         /* ============================================
            CSS VARIABLES & RESET
@@ -1529,7 +1535,7 @@
             if (file) handleResumeFile(file);
         }
 
-        function handleResumeFile(file) {
+        async function handleResumeFile(file) {
             if (!file) return;
             
             state.resumeFile = file;
@@ -1540,20 +1546,57 @@
             document.getElementById('resume-file-name').textContent = file.name;
             document.getElementById('resume-file-size').textContent = formatFileSize(file.size);
             
-            // Read file content
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                state.resumeText = e.target.result;
-                document.getElementById('resume-text').value = state.resumeText;
-            };
+            // Show loading state
+            document.getElementById('resume-file-name').textContent = file.name + ' (parsing...)';
             
-            if (file.type === 'text/plain') {
-                reader.readAsText(file);
-            } else {
-                // For PDF/DOCX, we'd need server-side processing
-                // For MVP, show a note to paste text instead
-                state.resumeText = document.getElementById('resume-text').value;
+            try {
+                let text = '';
+                const fileType = file.name.split('.').pop().toLowerCase();
+                
+                if (fileType === 'pdf') {
+                    text = await parsePDF(file);
+                } else if (fileType === 'docx' || fileType === 'doc') {
+                    text = await parseDOCX(file);
+                } else if (fileType === 'txt') {
+                    text = await file.text();
+                } else {
+                    throw new Error('Unsupported file type');
+                }
+                
+                state.resumeText = text;
+                document.getElementById('resume-text').value = text;
+                document.getElementById('resume-file-name').textContent = file.name + ' ✓';
+                
+            } catch (error) {
+                console.error('File parsing error:', error);
+                document.getElementById('resume-file-name').textContent = file.name + ' (failed to parse)';
+                alert('Could not parse file. Please try pasting the text instead.');
             }
+        }
+        
+        async function parsePDF(file) {
+            const arrayBuffer = await file.arrayBuffer();
+            
+            // Set worker path
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+            
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            let fullText = '';
+            
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const textContent = await page.getTextContent();
+                const pageText = textContent.items.map(item => item.str).join(' ');
+                fullText += pageText + '\n';
+            }
+            
+            return fullText.trim();
+        }
+        
+        async function parseDOCX(file) {
+            const arrayBuffer = await file.arrayBuffer();
+            const result = await mammoth.extractRawText({ arrayBuffer });
+            return result.value.trim();
         }
 
         function removeResumeFile() {
@@ -1570,24 +1613,38 @@
             if (file) handleJdFile(file);
         }
 
-        function handleJdFile(file) {
+        async function handleJdFile(file) {
             if (!file) return;
             
             state.jdFile = file;
             
             document.getElementById('jd-file-preview').classList.remove('hidden');
             document.getElementById('jd-upload-zone').classList.add('hidden');
-            document.getElementById('jd-file-name').textContent = file.name;
+            document.getElementById('jd-file-name').textContent = file.name + ' (parsing...)';
             document.getElementById('jd-file-size').textContent = formatFileSize(file.size);
             
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                state.jdText = e.target.result;
-                document.getElementById('jd-text').value = state.jdText;
-            };
-            
-            if (file.type === 'text/plain') {
-                reader.readAsText(file);
+            try {
+                let text = '';
+                const fileType = file.name.split('.').pop().toLowerCase();
+                
+                if (fileType === 'pdf') {
+                    text = await parsePDF(file);
+                } else if (fileType === 'docx' || fileType === 'doc') {
+                    text = await parseDOCX(file);
+                } else if (fileType === 'txt') {
+                    text = await file.text();
+                } else {
+                    throw new Error('Unsupported file type');
+                }
+                
+                state.jdText = text;
+                document.getElementById('jd-text').value = text;
+                document.getElementById('jd-file-name').textContent = file.name + ' ✓';
+                
+            } catch (error) {
+                console.error('File parsing error:', error);
+                document.getElementById('jd-file-name').textContent = file.name + ' (failed to parse)';
+                alert('Could not parse file. Please try pasting the text instead.');
             }
         }
 
