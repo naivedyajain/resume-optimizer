@@ -152,7 +152,7 @@
         .template-btn{flex:1;padding:0.5rem;font-size:0.75rem;font-weight:600;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;cursor:pointer;transition:all 0.15s}
         .template-btn:hover{border-color:var(--accent)}
         .template-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
-        .resume-preview{background:#fff;border-radius:8px;box-shadow:var(--shadow-md);padding:1.5rem;min-height:500px;font-size:9pt;line-height:1.45;color:#1f2937}
+        .resume-preview{background:#fff;border-radius:8px;box-shadow:var(--shadow-md);padding:1.25rem;min-height:400px;max-height:600px;overflow-y:auto;font-size:8pt;line-height:1.4;color:#1f2937}
         
         /* Chat */
         .chat-panel{display:flex;flex-direction:column;background:var(--bg-primary);border:1px solid var(--border);border-radius:12px;overflow:hidden}
@@ -202,21 +202,33 @@
         @keyframes spin{to{transform:rotate(360deg)}}
         .loading-text{color:var(--text-secondary);font-size:0.9rem;font-weight:500}
         
-        /* Resume Template */
-        .resume h1{font-size:18pt;font-weight:700;color:#111;margin-bottom:2px}
-        .resume .title{font-size:10pt;color:#4b5563;margin-bottom:6px}
-        .resume .contact{font-size:9pt;color:#6b7280;margin-bottom:16px}
-        .resume h2{font-size:10pt;font-weight:700;color:#111;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid #e5e7eb;padding-bottom:4px;margin:18px 0 10px}
-        .resume .summary{font-size:9pt;color:#374151;line-height:1.6}
-        .resume .job{margin-bottom:14px}
-        .resume .job-head{display:flex;justify-content:space-between;margin-bottom:4px}
-        .resume .job-title{font-weight:600;font-size:10pt;color:#111}
-        .resume .job-company{color:#4b5563;font-size:9pt}
-        .resume .job-date{font-size:9pt;color:#6b7280}
-        .resume ul{margin:6px 0;padding-left:16px}
-        .resume li{font-size:9pt;margin-bottom:4px;line-height:1.5;color:#374151}
-        .resume .skills{font-size:9pt;color:#374151}
-        .resume .edu{font-size:9pt;margin-bottom:4px;color:#374151}
+        /* Resume Templates */
+        .resume h1{font-size:14pt;font-weight:700;color:#111;margin-bottom:1px}
+        .resume .title{font-size:8pt;color:#4b5563;margin-bottom:4px}
+        .resume .contact{font-size:7pt;color:#6b7280;margin-bottom:10px}
+        .resume h2{font-size:8pt;font-weight:700;color:#111;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1.5px solid #e5e7eb;padding-bottom:2px;margin:12px 0 6px}
+        .resume .summary{font-size:7.5pt;color:#374151;line-height:1.5}
+        .resume .job{margin-bottom:10px}
+        .resume .job-head{display:flex;justify-content:space-between;margin-bottom:2px;flex-wrap:wrap;gap:4px}
+        .resume .job-title{font-weight:600;font-size:8pt;color:#111}
+        .resume .job-company{color:#4b5563;font-size:7.5pt}
+        .resume .job-date{font-size:7pt;color:#6b7280}
+        .resume ul{margin:4px 0;padding-left:12px}
+        .resume li{font-size:7.5pt;margin-bottom:2px;line-height:1.4;color:#374151}
+        .resume .skills{font-size:7.5pt;color:#374151;line-height:1.5}
+        .resume .edu{font-size:7.5pt;margin-bottom:3px;color:#374151}
+        
+        /* Modern Template */
+        .resume.modern{display:grid;grid-template-columns:1fr 140px;gap:12px}
+        .resume.modern .main-col{grid-column:1}
+        .resume.modern .side-col{grid-column:2;background:#f8fafc;padding:10px;border-radius:6px;font-size:7pt}
+        .resume.modern .side-col h2{font-size:7pt;margin-top:0}
+        .resume.modern h1{font-size:13pt;color:#2563eb}
+        
+        /* Bold Template */
+        .resume.bold h1{font-size:16pt;text-transform:uppercase;letter-spacing:1px}
+        .resume.bold h2{background:#111;color:#fff;padding:3px 6px;border:none;font-size:7pt}
+        .resume.bold .job-title{color:#2563eb}
     </style>
 </head>
 <body>
@@ -598,7 +610,59 @@
 
         function renderResume() {
             const r=state.resume;if(!r)return;
-            const html=`<div class="resume"><h1>${r.name||'Your Name'}</h1><div class="title">${r.title||''}</div><div class="contact">${r.contact?.email||''} • ${r.contact?.location||''}</div><h2>Summary</h2><p class="summary">${r.summary||''}</p><h2>Experience</h2>${(r.experience||[]).map(j=>`<div class="job"><div class="job-head"><div><span class="job-title">${j.title}</span> <span class="job-company">• ${j.company}</span></div><span class="job-date">${j.duration}</span></div><ul>${(j.bullets||[]).map(b=>`<li>${b}</li>`).join('')}</ul></div>`).join('')}<h2>Skills</h2><p class="skills">${(r.skills||[]).join(' • ')}</p><h2>Education</h2>${(r.education||[]).map(e=>`<p class="edu"><strong>${e.degree}</strong> — ${e.school}, ${e.year}</p>`).join('')}</div>`;
+            const t=state.template;
+            let html='';
+            
+            if(t==='modern') {
+                html=`<div class="resume modern">
+                    <div class="main-col">
+                        <h1>${r.name||'Your Name'}</h1>
+                        <div class="title">${r.title||''}</div>
+                        <h2>Summary</h2>
+                        <p class="summary">${r.summary||''}</p>
+                        <h2>Experience</h2>
+                        ${(r.experience||[]).map(j=>`<div class="job"><div class="job-head"><div><span class="job-title">${j.title}</span> <span class="job-company">• ${j.company}</span></div><span class="job-date">${j.duration}</span></div><ul>${(j.bullets||[]).map(b=>`<li>${b}</li>`).join('')}</ul></div>`).join('')}
+                    </div>
+                    <div class="side-col">
+                        <h2>Contact</h2>
+                        <p>${r.contact?.email||''}<br>${r.contact?.location||''}</p>
+                        <h2>Skills</h2>
+                        <p>${(r.skills||[]).join(', ')}</p>
+                        <h2>Education</h2>
+                        ${(r.education||[]).map(e=>`<p><strong>${e.degree}</strong><br>${e.school}<br>${e.year}</p>`).join('')}
+                    </div>
+                </div>`;
+            } else if(t==='bold') {
+                html=`<div class="resume bold">
+                    <h1>${r.name||'Your Name'}</h1>
+                    <div class="title">${r.title||''}</div>
+                    <div class="contact">${r.contact?.email||''} • ${r.contact?.location||''}</div>
+                    <h2>Summary</h2>
+                    <p class="summary">${r.summary||''}</p>
+                    <h2>Experience</h2>
+                    ${(r.experience||[]).map(j=>`<div class="job"><div class="job-head"><div><span class="job-title">${j.title}</span> <span class="job-company">• ${j.company}</span></div><span class="job-date">${j.duration}</span></div><ul>${(j.bullets||[]).map(b=>`<li>${b}</li>`).join('')}</ul></div>`).join('')}
+                    <h2>Skills</h2>
+                    <p class="skills">${(r.skills||[]).join(' • ')}</p>
+                    <h2>Education</h2>
+                    ${(r.education||[]).map(e=>`<p class="edu"><strong>${e.degree}</strong> — ${e.school}, ${e.year}</p>`).join('')}
+                </div>`;
+            } else {
+                // Clean template (default)
+                html=`<div class="resume">
+                    <h1>${r.name||'Your Name'}</h1>
+                    <div class="title">${r.title||''}</div>
+                    <div class="contact">${r.contact?.email||''} • ${r.contact?.location||''}</div>
+                    <h2>Summary</h2>
+                    <p class="summary">${r.summary||''}</p>
+                    <h2>Experience</h2>
+                    ${(r.experience||[]).map(j=>`<div class="job"><div class="job-head"><div><span class="job-title">${j.title}</span> <span class="job-company">• ${j.company}</span></div><span class="job-date">${j.duration}</span></div><ul>${(j.bullets||[]).map(b=>`<li>${b}</li>`).join('')}</ul></div>`).join('')}
+                    <h2>Skills</h2>
+                    <p class="skills">${(r.skills||[]).join(' • ')}</p>
+                    <h2>Education</h2>
+                    ${(r.education||[]).map(e=>`<p class="edu"><strong>${e.degree}</strong> — ${e.school}, ${e.year}</p>`).join('')}
+                </div>`;
+            }
+            
             document.getElementById('resume-preview').innerHTML=html;
             const cp=document.getElementById('comparison-preview');if(cp)cp.innerHTML=html;
         }
