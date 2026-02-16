@@ -218,16 +218,34 @@
         .resume .skills{font-size:7.5pt;color:#374151;line-height:1.5}
         .resume .edu{font-size:7.5pt;margin-bottom:3px;color:#374151}
         
-        /* Modern Template */
-        .resume.modern{display:grid;grid-template-columns:1fr 140px;gap:12px}
-        .resume.modern .main-col{grid-column:1}
-        .resume.modern .side-col{grid-column:2;background:#f8fafc;padding:10px;border-radius:6px;font-size:7pt}
-        .resume.modern .side-col h2{font-size:7pt;margin-top:0}
-        .resume.modern h1{font-size:13pt;color:#2563eb}
+        /* Modern Template - Two column sidebar like real resume */
+        .resume.modern{display:grid;grid-template-columns:120px 1fr;gap:0;margin:-1.25rem;overflow:hidden;border-radius:6px}
+        .resume.modern .sidebar{background:#f1f5f9;padding:10px;font-size:6.5pt;color:#374151;line-height:1.4}
+        .resume.modern .sidebar h2{font-size:6.5pt;font-weight:700;color:#1e293b;text-transform:uppercase;letter-spacing:0.3px;border:none;border-bottom:1px solid #cbd5e1;margin:8px 0 5px;padding-bottom:2px}
+        .resume.modern .sidebar h2:first-child{margin-top:0}
+        .resume.modern .sidebar p{margin-bottom:4px;line-height:1.35;font-size:6pt}
+        .resume.modern .sidebar .skill-group{margin-bottom:6px}
+        .resume.modern .sidebar .skill-label{font-weight:600;color:#1e293b;font-size:6pt;margin-bottom:1px}
+        .resume.modern .sidebar ul{padding-left:8px;margin:0}
+        .resume.modern .sidebar li{margin-bottom:1px;font-size:5.5pt;line-height:1.3}
+        .resume.modern .main{padding:10px 12px}
+        .resume.modern .main h1{font-size:12pt;color:#111;margin-bottom:1px;font-weight:700}
+        .resume.modern .main .title{font-size:7pt;color:#475569;margin-bottom:2px}
+        .resume.modern .main .contact{font-size:6pt;color:#64748b;margin-bottom:6px}
+        .resume.modern .main h2{font-size:7pt;color:#1e293b;border-bottom:1px solid #e2e8f0;margin:8px 0 4px;padding-bottom:2px}
+        .resume.modern .main .summary{font-size:6.5pt;line-height:1.4;color:#374151;margin-bottom:4px}
+        .resume.modern .main .job{margin-bottom:6px}
+        .resume.modern .main .job-head{margin-bottom:1px}
+        .resume.modern .main .job-title{font-size:7pt;font-weight:600;color:#111}
+        .resume.modern .main .job-company{font-size:6.5pt;color:#64748b;font-weight:500}
+        .resume.modern .main .job-date{font-size:6pt;color:#94a3b8}
+        .resume.modern .main ul{padding-left:10px;margin:2px 0}
+        .resume.modern .main li{font-size:6pt;margin-bottom:1px;line-height:1.3;color:#4b5563}
         
         /* Bold Template */
-        .resume.bold h1{font-size:16pt;text-transform:uppercase;letter-spacing:1px}
-        .resume.bold h2{background:#111;color:#fff;padding:3px 6px;border:none;font-size:7pt}
+        .resume.bold h1{font-size:15pt;text-transform:uppercase;letter-spacing:1px;border-bottom:3px solid #111;padding-bottom:4px;margin-bottom:4px}
+        .resume.bold h2{background:#111;color:#fff;padding:3px 8px;border:none;font-size:7pt;margin:10px 0 6px;border-radius:2px}
+        .resume.bold .job-title{color:#2563eb;font-weight:700}
         .resume.bold .job-title{color:#2563eb}
     </style>
 </head>
@@ -614,22 +632,28 @@
             let html='';
             
             if(t==='modern') {
+                // Two-column layout: sidebar on left, main content on right (like the uploaded resume)
                 html=`<div class="resume modern">
-                    <div class="main-col">
+                    <div class="sidebar">
+                        <h2>Skills</h2>
+                        <div class="skill-group">
+                            ${(r.skills||[]).map(s=>`<p>${s}</p>`).join('')}
+                        </div>
+                        <h2>Education</h2>
+                        ${(r.education||[]).map(e=>`<p><strong>${e.degree}</strong><br>${e.school}<br>${e.year}</p>`).join('')}
+                        <h2>Contact</h2>
+                        <p>${r.contact?.email||''}</p>
+                        <p>${r.contact?.phone||''}</p>
+                        <p>${r.contact?.location||''}</p>
+                    </div>
+                    <div class="main">
                         <h1>${r.name||'Your Name'}</h1>
                         <div class="title">${r.title||''}</div>
+                        <div class="contact">${r.contact?.email||''} • ${r.contact?.location||''}</div>
                         <h2>Summary</h2>
                         <p class="summary">${r.summary||''}</p>
                         <h2>Experience</h2>
-                        ${(r.experience||[]).map(j=>`<div class="job"><div class="job-head"><div><span class="job-title">${j.title}</span> <span class="job-company">• ${j.company}</span></div><span class="job-date">${j.duration}</span></div><ul>${(j.bullets||[]).map(b=>`<li>${b}</li>`).join('')}</ul></div>`).join('')}
-                    </div>
-                    <div class="side-col">
-                        <h2>Contact</h2>
-                        <p>${r.contact?.email||''}<br>${r.contact?.location||''}</p>
-                        <h2>Skills</h2>
-                        <p>${(r.skills||[]).join(', ')}</p>
-                        <h2>Education</h2>
-                        ${(r.education||[]).map(e=>`<p><strong>${e.degree}</strong><br>${e.school}<br>${e.year}</p>`).join('')}
+                        ${(r.experience||[]).map(j=>`<div class="job"><div class="job-head"><div><span class="job-title">${j.title}</span><br><span class="job-company">${j.company}</span></div><span class="job-date">${j.duration}</span></div><ul>${(j.bullets||[]).map(b=>`<li>${b}</li>`).join('')}</ul></div>`).join('')}
                     </div>
                 </div>`;
             } else if(t==='bold') {
