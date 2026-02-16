@@ -12,7 +12,7 @@ const CONFIG = {
     // Add: ANTHROPIC_API_KEY = your_api_key_here
     
     model: 'claude-sonnet-4-20250514',
-    maxTokens: 4096,
+    maxTokens: 8192,
     
     // Instance-specific context (customize for FaujiTech vs Akki.club)
     systemPrompt: `You are an expert resume consultant and career coach. Your goal is to help users create ATS-optimized, impactful resumes that get interviews.
@@ -278,34 +278,37 @@ ORIGINAL RESUME:
 ${resumeText}
 ---
 
-INSTRUCTIONS:
-1. Strengthen action verbs (Led, Built, Drove, Achieved, Scaled)
-2. Add metrics and numbers wherever possible
-3. Make summary punchy and achievement-focused
-4. Ensure each bullet starts with action verb
-5. Keep bullets concise (1-2 lines max)
-6. Organize skills by relevance
+CRITICAL INSTRUCTIONS:
+1. **INCLUDE ALL JOBS** - Do NOT omit any work experience. Include EVERY job from the original resume.
+2. Strengthen action verbs (Led, Built, Drove, Achieved, Scaled)
+3. Add metrics and numbers wherever possible
+4. Make summary punchy and achievement-focused
+5. Ensure each bullet starts with action verb
+6. Keep bullets concise (1-2 lines max)
+7. Organize skills by relevance
+8. **PRESERVE ALL CONTENT** - Include all education, certifications, and other sections
 
-Return the improved resume as JSON:
+Return the COMPLETE improved resume as JSON:
 {
     "name": "Full Name",
     "title": "Professional Title | Key Expertise",
     "contact": {
-        "email": "extracted or placeholder",
-        "linkedin": "extracted or placeholder",
-        "location": "extracted or placeholder",
-        "phone": "extracted or placeholder"
+        "email": "extracted email",
+        "linkedin": "extracted linkedin",
+        "location": "extracted location",
+        "phone": "extracted phone"
     },
-    "summary": "Improved 2-3 sentence summary",
+    "summary": "Improved 2-3 sentence summary with key metrics",
     "experience": [
         {
             "title": "Job Title",
             "company": "Company Name",
             "duration": "Date Range",
-            "bullets": ["Improved bullet 1", "Improved bullet 2", "Improved bullet 3"]
+            "bullets": ["Improved bullet 1", "Improved bullet 2", "Improved bullet 3", "Improved bullet 4"]
         }
+        // INCLUDE ALL JOBS - Do not truncate or omit any positions
     ],
-    "skills": ["Skill 1", "Skill 2"],
+    "skills": ["Skill 1", "Skill 2", "Skill 3", "...all skills"],
     "education": [
         {
             "degree": "Degree",
@@ -315,6 +318,7 @@ Return the improved resume as JSON:
     ]
 }
 
+IMPORTANT: Return the COMPLETE resume with ALL experience entries. Do not truncate.
 Return ONLY the JSON, no additional text.`;
 }
 
