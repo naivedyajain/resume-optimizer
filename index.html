@@ -218,34 +218,16 @@
         .resume .skills{font-size:7.5pt;color:#374151;line-height:1.5}
         .resume .edu{font-size:7.5pt;margin-bottom:3px;color:#374151}
         
-        /* Modern Template - Two column sidebar like real resume */
-        .resume.modern{display:grid;grid-template-columns:120px 1fr;gap:0;margin:-1.25rem;overflow:hidden;border-radius:6px}
-        .resume.modern .sidebar{background:#f1f5f9;padding:10px;font-size:6.5pt;color:#374151;line-height:1.4}
-        .resume.modern .sidebar h2{font-size:6.5pt;font-weight:700;color:#1e293b;text-transform:uppercase;letter-spacing:0.3px;border:none;border-bottom:1px solid #cbd5e1;margin:8px 0 5px;padding-bottom:2px}
-        .resume.modern .sidebar h2:first-child{margin-top:0}
-        .resume.modern .sidebar p{margin-bottom:4px;line-height:1.35;font-size:6pt}
-        .resume.modern .sidebar .skill-group{margin-bottom:6px}
-        .resume.modern .sidebar .skill-label{font-weight:600;color:#1e293b;font-size:6pt;margin-bottom:1px}
-        .resume.modern .sidebar ul{padding-left:8px;margin:0}
-        .resume.modern .sidebar li{margin-bottom:1px;font-size:5.5pt;line-height:1.3}
-        .resume.modern .main{padding:10px 12px}
-        .resume.modern .main h1{font-size:12pt;color:#111;margin-bottom:1px;font-weight:700}
-        .resume.modern .main .title{font-size:7pt;color:#475569;margin-bottom:2px}
-        .resume.modern .main .contact{font-size:6pt;color:#64748b;margin-bottom:6px}
-        .resume.modern .main h2{font-size:7pt;color:#1e293b;border-bottom:1px solid #e2e8f0;margin:8px 0 4px;padding-bottom:2px}
-        .resume.modern .main .summary{font-size:6.5pt;line-height:1.4;color:#374151;margin-bottom:4px}
-        .resume.modern .main .job{margin-bottom:6px}
-        .resume.modern .main .job-head{margin-bottom:1px}
-        .resume.modern .main .job-title{font-size:7pt;font-weight:600;color:#111}
-        .resume.modern .main .job-company{font-size:6.5pt;color:#64748b;font-weight:500}
-        .resume.modern .main .job-date{font-size:6pt;color:#94a3b8}
-        .resume.modern .main ul{padding-left:10px;margin:2px 0}
-        .resume.modern .main li{font-size:6pt;margin-bottom:1px;line-height:1.3;color:#4b5563}
+        /* Modern Template */
+        .resume.modern{display:grid;grid-template-columns:1fr 140px;gap:12px}
+        .resume.modern .main-col{grid-column:1}
+        .resume.modern .side-col{grid-column:2;background:#f8fafc;padding:10px;border-radius:6px;font-size:7pt}
+        .resume.modern .side-col h2{font-size:7pt;margin-top:0}
+        .resume.modern h1{font-size:13pt;color:#2563eb}
         
         /* Bold Template */
-        .resume.bold h1{font-size:15pt;text-transform:uppercase;letter-spacing:1px;border-bottom:3px solid #111;padding-bottom:4px;margin-bottom:4px}
-        .resume.bold h2{background:#111;color:#fff;padding:3px 8px;border:none;font-size:7pt;margin:10px 0 6px;border-radius:2px}
-        .resume.bold .job-title{color:#2563eb;font-weight:700}
+        .resume.bold h1{font-size:16pt;text-transform:uppercase;letter-spacing:1px}
+        .resume.bold h2{background:#111;color:#fff;padding:3px 6px;border:none;font-size:7pt}
         .resume.bold .job-title{color:#2563eb}
     </style>
 </head>
@@ -546,12 +528,18 @@
             document.getElementById('file-size').textContent=formatSize(file.size);
             try {
                 const ext=file.name.split('.').pop().toLowerCase();
+                console.log('Parsing file:', file.name, 'extension:', ext);
+                
                 if(ext==='pdf') state.text=await parsePDF(file);
                 else if(ext==='docx'||ext==='doc') state.text=await parseDOCX(file);
                 else state.text=await file.text();
+                
+                console.log('Parsed text length:', state.text.length);
+                console.log('Parsed text preview:', state.text.substring(0, 300));
+                
                 document.getElementById('file-name').textContent=file.name+' ✓';
             } catch(e) {
-                console.error(e);
+                console.error('Parse error:', e);
                 document.getElementById('file-name').textContent=file.name+' (failed)';
                 alert('Could not parse file. Try a different format.');
             }
@@ -569,12 +557,27 @@
         function formatSize(b){if(b<1024)return b+' B';if(b<1048576)return(b/1024).toFixed(1)+' KB';return(b/1048576).toFixed(1)+' MB'}
 
         async function analyzeResume() {
-            if(!state.text.trim()){alert('Please upload your resume first');return}
+            if(!state.text || !state.text.trim()){alert('Please upload your resume first');return}
+            
+            console.log('Analyzing resume, text length:', state.text.length);
+            
             loading('Analyzing your resume...');
             try {
                 const res=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'ats_score',resumeText:state.text})});
-                if(res.ok){const r=await res.json();state.ats=r.success&&r.data?r.data:mockATS()}else state.ats=mockATS();
-            } catch(e){state.ats=mockATS()}
+                console.log('ATS API status:', res.status);
+                if(res.ok){
+                    const r=await res.json();
+                    console.log('ATS response:', r);
+                    state.ats=r.success&&r.data?r.data:mockATS();
+                } else {
+                    const errText = await res.text();
+                    console.error('ATS API error:', errText);
+                    state.ats=mockATS();
+                }
+            } catch(e){
+                console.error('ATS fetch error:', e);
+                state.ats=mockATS();
+            }
             state.originalScore=state.ats.overall;
             hideLoading();
             renderATS();
@@ -582,11 +585,67 @@
         }
 
         async function refineResume() {
+            // Check if we have resume text
+            if(!state.text || !state.text.trim()) {
+                alert('No resume text found. Please upload your resume again.');
+                show('upload-screen');
+                return;
+            }
+            
+            console.log('Refining resume, text length:', state.text.length);
+            console.log('Resume text preview:', state.text.substring(0, 200));
+            
             loading('Improving your resume...');
             try {
-                const res=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'refine',resumeText:state.text})});
-                if(res.ok){const r=await res.json();state.resume=r.success&&r.data?r.data:mockResume()}else state.resume=mockResume();
-            } catch(e){state.resume=mockResume()}
+                const res = await fetch(API, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({action: 'refine', resumeText: state.text})
+                });
+                
+                console.log('API response status:', res.status);
+                
+                if(res.ok) {
+                    const r = await res.json();
+                    console.log('API response:', r);
+                    
+                    if(r.success && r.data) {
+                        // Check if we got a valid resume structure
+                        if(r.data.name || r.data.experience) {
+                            state.resume = r.data;
+                            console.log('Resume parsed successfully:', state.resume);
+                        } else if(r.data.rawResponse) {
+                            // API returned raw text, try to extract JSON
+                            console.log('Got raw response, trying to parse');
+                            try {
+                                const jsonMatch = r.data.rawResponse.match(/\{[\s\S]*\}/);
+                                if(jsonMatch) {
+                                    state.resume = JSON.parse(jsonMatch[0]);
+                                } else {
+                                    console.error('No JSON found in raw response');
+                                    state.resume = mockResume();
+                                }
+                            } catch(parseErr) {
+                                console.error('JSON parse error:', parseErr);
+                                state.resume = mockResume();
+                            }
+                        } else {
+                            console.log('Using r.data directly as resume');
+                            state.resume = r.data;
+                        }
+                    } else {
+                        console.error('API returned error or no data:', r);
+                        state.resume = mockResume();
+                    }
+                } else {
+                    const errText = await res.text();
+                    console.error('API error:', res.status, errText);
+                    state.resume = mockResume();
+                }
+            } catch(e) {
+                console.error('Fetch error:', e);
+                state.resume = mockResume();
+            }
             hideLoading();
             renderResume();
             initChat();
@@ -632,28 +691,22 @@
             let html='';
             
             if(t==='modern') {
-                // Two-column layout: sidebar on left, main content on right (like the uploaded resume)
                 html=`<div class="resume modern">
-                    <div class="sidebar">
-                        <h2>Skills</h2>
-                        <div class="skill-group">
-                            ${(r.skills||[]).map(s=>`<p>${s}</p>`).join('')}
-                        </div>
-                        <h2>Education</h2>
-                        ${(r.education||[]).map(e=>`<p><strong>${e.degree}</strong><br>${e.school}<br>${e.year}</p>`).join('')}
-                        <h2>Contact</h2>
-                        <p>${r.contact?.email||''}</p>
-                        <p>${r.contact?.phone||''}</p>
-                        <p>${r.contact?.location||''}</p>
-                    </div>
-                    <div class="main">
+                    <div class="main-col">
                         <h1>${r.name||'Your Name'}</h1>
                         <div class="title">${r.title||''}</div>
-                        <div class="contact">${r.contact?.email||''} • ${r.contact?.location||''}</div>
                         <h2>Summary</h2>
                         <p class="summary">${r.summary||''}</p>
                         <h2>Experience</h2>
-                        ${(r.experience||[]).map(j=>`<div class="job"><div class="job-head"><div><span class="job-title">${j.title}</span><br><span class="job-company">${j.company}</span></div><span class="job-date">${j.duration}</span></div><ul>${(j.bullets||[]).map(b=>`<li>${b}</li>`).join('')}</ul></div>`).join('')}
+                        ${(r.experience||[]).map(j=>`<div class="job"><div class="job-head"><div><span class="job-title">${j.title}</span> <span class="job-company">• ${j.company}</span></div><span class="job-date">${j.duration}</span></div><ul>${(j.bullets||[]).map(b=>`<li>${b}</li>`).join('')}</ul></div>`).join('')}
+                    </div>
+                    <div class="side-col">
+                        <h2>Contact</h2>
+                        <p>${r.contact?.email||''}<br>${r.contact?.location||''}</p>
+                        <h2>Skills</h2>
+                        <p>${(r.skills||[]).join(', ')}</p>
+                        <h2>Education</h2>
+                        ${(r.education||[]).map(e=>`<p><strong>${e.degree}</strong><br>${e.school}<br>${e.year}</p>`).join('')}
                     </div>
                 </div>`;
             } else if(t==='bold') {
