@@ -794,15 +794,16 @@
             printContainer.style.cssText = `
                 width: 210mm;
                 min-height: 297mm;
-                padding: 15mm 15mm 15mm 15mm;
+                padding: 15mm;
                 background: white;
                 font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
                 font-size: 10pt;
                 line-height: 1.5;
                 color: #1f2937;
-                position: absolute;
-                left: -9999px;
+                position: fixed;
+                left: 0;
                 top: 0;
+                z-index: 9999;
             `;
             
             const t = state.template;
@@ -811,29 +812,29 @@
             // Common styles for PDF
             const pdfStyles = `
                 <style>
-                    * { margin: 0; padding: 0; box-sizing: border-box; }
-                    h1 { font-size: 20pt; font-weight: 700; color: #111; margin-bottom: 2pt; }
-                    .title { font-size: 11pt; color: #4b5563; margin-bottom: 4pt; }
-                    .contact { font-size: 9pt; color: #6b7280; margin-bottom: 14pt; }
-                    h2 { font-size: 11pt; font-weight: 700; color: #111; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1.5pt solid #d1d5db; padding-bottom: 3pt; margin: 16pt 0 8pt; }
-                    .summary { font-size: 10pt; color: #374151; line-height: 1.6; margin-bottom: 4pt; }
-                    .job { margin-bottom: 14pt; }
-                    .job-head { display: flex; justify-content: space-between; margin-bottom: 4pt; flex-wrap: wrap; }
-                    .job-title { font-weight: 600; font-size: 10.5pt; color: #111; }
-                    .job-company { color: #4b5563; font-size: 10pt; }
-                    .job-date { font-size: 9pt; color: #6b7280; }
-                    ul { margin: 6pt 0; padding-left: 16pt; }
-                    li { font-size: 10pt; margin-bottom: 4pt; line-height: 1.5; color: #374151; }
-                    .skills { font-size: 10pt; color: #374151; line-height: 1.6; }
-                    .edu { font-size: 10pt; margin-bottom: 6pt; color: #374151; }
-                    .modern-grid { display: flex; gap: 20pt; }
-                    .main-col { flex: 1; }
-                    .side-col { width: 150pt; background: #f8fafc; padding: 12pt; border-radius: 6pt; }
-                    .side-col h2 { font-size: 9pt; margin-top: 0; }
-                    .side-col p { font-size: 9pt; }
-                    .bold h1 { font-size: 22pt; text-transform: uppercase; letter-spacing: 1px; }
-                    .bold h2 { background: #111; color: #fff; padding: 4pt 8pt; border: none; font-size: 9pt; border-radius: 0; }
-                    .bold .job-title { color: #2563eb; }
+                    #pdf-export * { margin: 0; padding: 0; box-sizing: border-box; }
+                    #pdf-export h1 { font-size: 20pt; font-weight: 700; color: #111; margin-bottom: 2pt; }
+                    #pdf-export .title { font-size: 11pt; color: #4b5563; margin-bottom: 4pt; }
+                    #pdf-export .contact { font-size: 9pt; color: #6b7280; margin-bottom: 14pt; }
+                    #pdf-export h2 { font-size: 11pt; font-weight: 700; color: #111; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1.5pt solid #d1d5db; padding-bottom: 3pt; margin: 16pt 0 8pt; }
+                    #pdf-export .summary { font-size: 10pt; color: #374151; line-height: 1.6; margin-bottom: 4pt; }
+                    #pdf-export .job { margin-bottom: 14pt; }
+                    #pdf-export .job-head { display: flex; justify-content: space-between; margin-bottom: 4pt; flex-wrap: wrap; }
+                    #pdf-export .job-title { font-weight: 600; font-size: 10.5pt; color: #111; }
+                    #pdf-export .job-company { color: #4b5563; font-size: 10pt; }
+                    #pdf-export .job-date { font-size: 9pt; color: #6b7280; }
+                    #pdf-export ul { margin: 6pt 0; padding-left: 16pt; }
+                    #pdf-export li { font-size: 10pt; margin-bottom: 4pt; line-height: 1.5; color: #374151; }
+                    #pdf-export .skills { font-size: 10pt; color: #374151; line-height: 1.6; }
+                    #pdf-export .edu { font-size: 10pt; margin-bottom: 6pt; color: #374151; }
+                    #pdf-export .modern-grid { display: flex; gap: 20pt; }
+                    #pdf-export .main-col { flex: 1; }
+                    #pdf-export .side-col { width: 150pt; background: #f8fafc; padding: 12pt; border-radius: 6pt; }
+                    #pdf-export .side-col h2 { font-size: 9pt; margin-top: 0; }
+                    #pdf-export .side-col p { font-size: 9pt; }
+                    #pdf-export .bold h1 { font-size: 22pt; text-transform: uppercase; letter-spacing: 1px; }
+                    #pdf-export .bold h2 { background: #111; color: #fff; padding: 4pt 8pt; border: none; font-size: 9pt; border-radius: 0; }
+                    #pdf-export .bold .job-title { color: #2563eb; }
                 </style>
             `;
             
@@ -917,32 +918,34 @@
             printContainer.innerHTML = html;
             document.body.appendChild(printContainer);
             
-            // Generate PDF with A4 settings
-            const opt = {
-                margin: 0,
-                filename: `${(r.name || 'resume').replace(/\s+/g, '_')}_resume.pdf`,
-                image: { type: 'jpeg', quality: 1 },
-                html2canvas: { 
-                    scale: 2,
-                    useCORS: true,
-                    letterRendering: true,
-                    logging: false
-                },
-                jsPDF: { 
-                    unit: 'mm', 
-                    format: 'a4', 
-                    orientation: 'portrait'
-                },
-                pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
-            };
-            
-            html2pdf().set(opt).from(printContainer).save().then(() => {
-                document.body.removeChild(printContainer);
-            }).catch(err => {
-                console.error('PDF generation error:', err);
-                document.body.removeChild(printContainer);
-                alert('Error generating PDF. Please try again.');
-            });
+            // Small delay to ensure DOM is rendered
+            setTimeout(() => {
+                const opt = {
+                    margin: 0,
+                    filename: `${(r.name || 'resume').replace(/\s+/g, '_')}_resume.pdf`,
+                    image: { type: 'jpeg', quality: 1 },
+                    html2canvas: { 
+                        scale: 2,
+                        useCORS: true,
+                        logging: false,
+                        windowWidth: 794, // A4 width in pixels at 96dpi
+                        windowHeight: 1123 // A4 height in pixels at 96dpi
+                    },
+                    jsPDF: { 
+                        unit: 'mm', 
+                        format: 'a4', 
+                        orientation: 'portrait'
+                    }
+                };
+                
+                html2pdf().set(opt).from(printContainer).save().then(() => {
+                    document.body.removeChild(printContainer);
+                }).catch(err => {
+                    console.error('PDF generation error:', err);
+                    document.body.removeChild(printContainer);
+                    alert('Error generating PDF. Please try again.');
+                });
+            }, 100);
         }
 
         function loading(t){document.getElementById('loading-text').textContent=t;document.getElementById('loading').classList.remove('hidden')}
