@@ -882,179 +882,182 @@
 
         function downloadResume() {
             const r = state.resume;
+            if (!r) { alert('No resume to download'); return; }
             
-            // Debug: Log the resume state
-            console.log('=== DOWNLOAD DEBUG ===');
-            console.log('state.resume:', r);
-            console.log('state.resume is null?', r === null);
-            console.log('state.resume is undefined?', r === undefined);
-            
-            if (!r) { 
-                alert('No resume to download. State.resume is: ' + JSON.stringify(r)); 
-                return; 
-            }
-            
-            console.log('Resume name:', r.name);
-            console.log('Resume experience:', r.experience);
-            console.log('Resume has experience?', r.experience && r.experience.length > 0);
-            
-            const t = state.template;
-            let bodyContent = '';
-            
-            // Template-specific HTML
-            if (t === 'modern') {
-                bodyContent = `
-                    <div class="resume modern">
-                        <div class="main-col">
-                            <h1>${r.name || 'Your Name'}</h1>
-                            <div class="title">${r.title || ''}</div>
-                            <h2>Summary</h2>
-                            <p class="summary">${r.summary || ''}</p>
-                            <h2>Experience</h2>
-                            ${(r.experience || []).map(j => `
-                                <div class="job">
-                                    <div class="job-head">
-                                        <span class="job-title">${j.title}</span>
-                                        <span class="job-company"> · ${j.company}</span>
-                                        <span class="job-date">${j.duration}</span>
-                                    </div>
-                                    <ul>${(j.bullets || []).map(b => `<li>${b}</li>`).join('')}</ul>
-                                </div>
-                            `).join('')}
-                        </div>
-                        <div class="side-col">
-                            <h2>Contact</h2>
-                            <p>${r.contact?.email || ''}</p>
-                            <p>${r.contact?.phone || ''}</p>
-                            <p>${r.contact?.location || ''}</p>
-                            <h2>Skills</h2>
-                            <p>${(r.skills || []).join(', ')}</p>
-                            <h2>Education</h2>
-                            ${(r.education || []).map(e => `<p><strong>${e.degree}</strong><br>${e.school}, ${e.year}</p>`).join('')}
-                        </div>
-                    </div>`;
-            } else if (t === 'bold') {
-                bodyContent = `
-                    <div class="resume bold">
-                        <h1>${r.name || 'Your Name'}</h1>
-                        <div class="title">${r.title || ''}</div>
-                        <div class="contact-line">${[r.contact?.email, r.contact?.phone, r.contact?.location].filter(Boolean).join(' · ')}</div>
-                        <h2>Summary</h2>
-                        <p class="summary">${r.summary || ''}</p>
-                        <h2>Experience</h2>
-                        ${(r.experience || []).map(j => `
-                            <div class="job">
-                                <div class="job-head">
-                                    <span class="job-title">${j.title}</span>
-                                    <span class="job-company"> · ${j.company}</span>
-                                    <span class="job-date">${j.duration}</span>
-                                </div>
-                                <ul>${(j.bullets || []).map(b => `<li>${b}</li>`).join('')}</ul>
-                            </div>
-                        `).join('')}
-                        <h2>Skills</h2>
-                        <p class="skills">${(r.skills || []).join(' · ')}</p>
-                        <h2>Education</h2>
-                        ${(r.education || []).map(e => `<p class="edu"><strong>${e.degree}</strong> — ${e.school}, ${e.year}</p>`).join('')}
-                    </div>`;
+            // Load jsPDF dynamically
+            if (!window.jspdf) {
+                const script = document.createElement('script');
+                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+                script.onload = () => generatePDF(r);
+                document.head.appendChild(script);
             } else {
-                // Clean template (default)
-                bodyContent = `
-                    <div class="resume">
-                        <h1>${r.name || 'Your Name'}</h1>
-                        <div class="title">${r.title || ''}</div>
-                        <div class="contact-line">${[r.contact?.email, r.contact?.phone, r.contact?.location].filter(Boolean).join(' · ')}</div>
-                        <h2>Summary</h2>
-                        <p class="summary">${r.summary || ''}</p>
-                        <h2>Experience</h2>
-                        ${(r.experience || []).map(j => `
-                            <div class="job">
-                                <div class="job-head">
-                                    <span class="job-title">${j.title}</span>
-                                    <span class="job-company"> · ${j.company}</span>
-                                    <span class="job-date">${j.duration}</span>
-                                </div>
-                                <ul>${(j.bullets || []).map(b => `<li>${b}</li>`).join('')}</ul>
-                            </div>
-                        `).join('')}
-                        <h2>Skills</h2>
-                        <p class="skills">${(r.skills || []).join(' · ')}</p>
-                        <h2>Education</h2>
-                        ${(r.education || []).map(e => `<p class="edu"><strong>${e.degree}</strong> — ${e.school}, ${e.year}</p>`).join('')}
-                    </div>`;
+                generatePDF(r);
+            }
+        }
+        
+        function generatePDF(r) {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+            
+            const pageWidth = 210;
+            const pageHeight = 297;
+            const margin = 15;
+            const contentWidth = pageWidth - (margin * 2);
+            let y = margin;
+            
+            // Colors
+            const black = [17, 24, 39];
+            const gray = [75, 85, 99];
+            const lightGray = [107, 114, 128];
+            
+            // Helper: Add text with word wrap, returns new Y position
+            function addText(text, x, yPos, fontSize, color, maxWidth, fontStyle = 'normal') {
+                doc.setFontSize(fontSize);
+                doc.setTextColor(...color);
+                doc.setFont('helvetica', fontStyle);
+                const lines = doc.splitTextToSize(text || '', maxWidth);
+                doc.text(lines, x, yPos);
+                return yPos + (lines.length * fontSize * 0.4);
             }
             
-            console.log('Body content generated, length:', bodyContent.length);
-            
-            const fullHTML = `<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>${r.name || 'Resume'}</title>
-    <style>
-        @page { size: A4; margin: 12mm 15mm; }
-        @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 10pt; line-height: 1.5; color: #1f2937; background: white; padding: 0; }
-        .resume { max-width: 100%; padding: 0; }
-        .resume.modern { display: grid; grid-template-columns: 1fr 170px; gap: 20px; }
-        .resume.modern .side-col { background: #f3f4f6; padding: 14px; border-radius: 6px; font-size: 9pt; }
-        .resume.modern .side-col h2 { font-size: 9pt; margin-top: 14px; border: none; padding: 0; }
-        .resume.modern .side-col h2:first-child { margin-top: 0; }
-        .resume.modern .side-col p { margin: 3px 0; word-break: break-word; }
-        h1 { font-size: 20pt; font-weight: 700; color: #111827; margin-bottom: 2px; }
-        .title { font-size: 11pt; color: #4b5563; margin-bottom: 2px; }
-        .contact-line { font-size: 9pt; color: #6b7280; margin-bottom: 14px; }
-        h2 { font-size: 10pt; font-weight: 700; color: #111827; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1.5px solid #d1d5db; padding-bottom: 3px; margin: 16px 0 8px; }
-        .summary { font-size: 10pt; color: #374151; line-height: 1.55; }
-        .job { margin-bottom: 12px; page-break-inside: avoid; }
-        .job-head { margin-bottom: 4px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px; }
-        .job-title { font-weight: 600; font-size: 10pt; color: #111827; }
-        .job-company { color: #4b5563; font-size: 9.5pt; }
-        .job-date { margin-left: auto; font-size: 9pt; color: #6b7280; }
-        ul { margin: 4px 0 0 0; padding-left: 18px; }
-        li { font-size: 9.5pt; margin-bottom: 2px; line-height: 1.45; color: #374151; }
-        .skills { font-size: 10pt; color: #374151; }
-        .edu { font-size: 10pt; margin-bottom: 6px; color: #374151; }
-        .resume.bold h1 { font-size: 22pt; text-transform: uppercase; letter-spacing: 0.5px; }
-        .resume.bold h2 { background: #111827; color: white; padding: 4px 8px; border: none; font-size: 9pt; margin: 14px 0 8px; }
-        .resume.bold .job-title { color: #2563eb; }
-    </style>
-</head>
-<body>
-${bodyContent}
-</body>
-</html>`;
-
-            console.log('Full HTML generated, length:', fullHTML.length);
-            
-            // Method: Open in new tab and trigger print
-            const printWindow = window.open('', '_blank', 'width=800,height=600');
-            
-            if (!printWindow) {
-                alert('Pop-up blocked! Please allow pop-ups for this site and try again.');
-                return;
-            }
-            
-            printWindow.document.open();
-            printWindow.document.write(fullHTML);
-            printWindow.document.close();
-            
-            // Wait for content to render then print
-            printWindow.onload = function() {
-                console.log('Print window loaded');
-                setTimeout(() => {
-                    printWindow.print();
-                }, 500);
-            };
-            
-            // Fallback if onload doesn't fire
-            setTimeout(() => {
-                if (printWindow.document.readyState === 'complete') {
-                    console.log('Fallback print trigger');
-                    printWindow.print();
+            // Helper: Check if we need a new page
+            function checkNewPage(neededSpace) {
+                if (y + neededSpace > pageHeight - margin) {
+                    doc.addPage();
+                    y = margin;
+                    return true;
                 }
-            }, 1000);
+                return false;
+            }
+            
+            // Helper: Draw section header
+            function addSectionHeader(title) {
+                checkNewPage(15);
+                y += 6;
+                doc.setFontSize(10);
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(...black);
+                doc.text(title.toUpperCase(), margin, y);
+                y += 1;
+                doc.setDrawColor(209, 213, 219);
+                doc.setLineWidth(0.5);
+                doc.line(margin, y, pageWidth - margin, y);
+                y += 5;
+            }
+            
+            // === HEADER ===
+            // Name
+            doc.setFontSize(22);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(...black);
+            doc.text(r.name || 'Your Name', margin, y);
+            y += 8;
+            
+            // Title
+            if (r.title) {
+                doc.setFontSize(11);
+                doc.setFont('helvetica', 'normal');
+                doc.setTextColor(...gray);
+                doc.text(r.title, margin, y);
+                y += 5;
+            }
+            
+            // Contact
+            const contactParts = [r.contact?.email, r.contact?.phone, r.contact?.location].filter(Boolean);
+            if (contactParts.length > 0) {
+                doc.setFontSize(9);
+                doc.setTextColor(...lightGray);
+                doc.text(contactParts.join('  •  '), margin, y);
+                y += 8;
+            }
+            
+            // === SUMMARY ===
+            if (r.summary) {
+                addSectionHeader('Summary');
+                y = addText(r.summary, margin, y, 10, gray, contentWidth);
+                y += 2;
+            }
+            
+            // === EXPERIENCE ===
+            if (r.experience && r.experience.length > 0) {
+                addSectionHeader('Experience');
+                
+                r.experience.forEach((job, idx) => {
+                    checkNewPage(25);
+                    
+                    // Job title and company
+                    doc.setFontSize(10.5);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setTextColor(...black);
+                    const jobTitle = job.title || 'Role';
+                    doc.text(jobTitle, margin, y);
+                    
+                    const titleWidth = doc.getTextWidth(jobTitle);
+                    doc.setFont('helvetica', 'normal');
+                    doc.setTextColor(...gray);
+                    doc.setFontSize(10);
+                    doc.text('  •  ' + (job.company || 'Company'), margin + titleWidth, y);
+                    
+                    // Duration on right
+                    if (job.duration) {
+                        doc.setFontSize(9);
+                        doc.setTextColor(...lightGray);
+                        const durationWidth = doc.getTextWidth(job.duration);
+                        doc.text(job.duration, pageWidth - margin - durationWidth, y);
+                    }
+                    y += 5;
+                    
+                    // Bullets
+                    if (job.bullets && job.bullets.length > 0) {
+                        job.bullets.forEach(bullet => {
+                            checkNewPage(10);
+                            doc.setFontSize(9.5);
+                            doc.setTextColor(...gray);
+                            doc.setFont('helvetica', 'normal');
+                            
+                            // Bullet point
+                            doc.text('•', margin + 2, y);
+                            
+                            // Bullet text with wrap
+                            const bulletLines = doc.splitTextToSize(bullet, contentWidth - 8);
+                            doc.text(bulletLines, margin + 7, y);
+                            y += bulletLines.length * 4 + 1;
+                        });
+                    }
+                    y += 3;
+                });
+            }
+            
+            // === SKILLS ===
+            if (r.skills && r.skills.length > 0) {
+                addSectionHeader('Skills');
+                y = addText(r.skills.join('  •  '), margin, y, 10, gray, contentWidth);
+                y += 2;
+            }
+            
+            // === EDUCATION ===
+            if (r.education && r.education.length > 0) {
+                addSectionHeader('Education');
+                
+                r.education.forEach(edu => {
+                    checkNewPage(12);
+                    doc.setFontSize(10);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setTextColor(...black);
+                    doc.text(edu.degree || 'Degree', margin, y);
+                    y += 4;
+                    
+                    doc.setFont('helvetica', 'normal');
+                    doc.setTextColor(...gray);
+                    const eduDetails = [edu.school, edu.year].filter(Boolean).join(', ');
+                    doc.text(eduDetails, margin, y);
+                    y += 6;
+                });
+            }
+            
+            // Save
+            const fileName = (r.name || 'resume').replace(/\s+/g, '_') + '_resume.pdf';
+            doc.save(fileName);
         }
 
         function loading(t){document.getElementById('loading-text').textContent=t;document.getElementById('loading').classList.remove('hidden')}
