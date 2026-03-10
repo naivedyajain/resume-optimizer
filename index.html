@@ -9,7 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
     <style>
         :root {
@@ -1111,171 +1111,158 @@
                 return;
             }
             
-            // Show loading
             loading('pdf');
             
-            // Build resume HTML with inline styles for PDF
-            const t = state.template;
-            let resumeHTML = '';
-            
-            const baseStyles = `
-                font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-                color: #1f2937;
-                line-height: 1.5;
-            `;
-            
-            if (t === 'modern') {
-                // Two-column modern template
-                resumeHTML = `
-                    <div style="${baseStyles} display: grid; grid-template-columns: 28% 1fr; min-height: 100%;">
-                        <div style="background: #f1f5f9; padding: 24px 20px; font-size: 9pt;">
-                            <h2 style="font-size: 9pt; font-weight: 700; color: #1e293b; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; margin: 0 0 8px 0;">Skills</h2>
-                            ${(r.skills||[]).map(s => `<p style="margin: 0 0 4px 0; font-size: 8pt; color: #374151;">${s}</p>`).join('')}
-                            
-                            <h2 style="font-size: 9pt; font-weight: 700; color: #1e293b; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; margin: 16px 0 8px 0;">Education</h2>
-                            ${(r.education||[]).map(e => `<p style="margin: 0 0 6px 0; font-size: 8pt; color: #374151;"><strong>${e.degree}</strong><br>${e.school}<br>${e.year}</p>`).join('')}
-                            
-                            <h2 style="font-size: 9pt; font-weight: 700; color: #1e293b; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; margin: 16px 0 8px 0;">Contact</h2>
-                            <p style="margin: 0 0 3px 0; font-size: 8pt; color: #374151;">${r.contact?.email||''}</p>
-                            <p style="margin: 0 0 3px 0; font-size: 8pt; color: #374151;">${r.contact?.phone||''}</p>
-                            <p style="margin: 0; font-size: 8pt; color: #374151;">${r.contact?.location||''}</p>
-                        </div>
-                        <div style="padding: 24px;">
-                            <h1 style="font-size: 18pt; font-weight: 700; color: #111; margin: 0 0 2px 0;">${r.name||'Your Name'}</h1>
-                            <div style="font-size: 10pt; color: #475569; margin-bottom: 4px;">${r.title||''}</div>
-                            <div style="font-size: 8pt; color: #64748b; margin-bottom: 12px;">${r.contact?.email||''} • ${r.contact?.location||''}</div>
-                            
-                            <h2 style="font-size: 10pt; font-weight: 700; color: #1e293b; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; margin: 0 0 8px 0;">Summary</h2>
-                            <p style="font-size: 9pt; color: #374151; margin: 0 0 12px 0; line-height: 1.5;">${r.summary||''}</p>
-                            
-                            <h2 style="font-size: 10pt; font-weight: 700; color: #1e293b; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; margin: 0 0 8px 0;">Experience</h2>
-                            ${(r.experience||[]).map(j => `
-                                <div style="margin-bottom: 12px;">
-                                    <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
-                                        <div>
-                                            <span style="font-weight: 600; font-size: 10pt; color: #111;">${j.title}</span><br>
-                                            <span style="font-size: 9pt; color: #64748b;">${j.company}</span>
-                                        </div>
-                                        <span style="font-size: 8pt; color: #94a3b8;">${j.duration}</span>
-                                    </div>
-                                    <ul style="margin: 4px 0 0 0; padding-left: 16px;">
-                                        ${(j.bullets||[]).map(b => `<li style="font-size: 9pt; color: #4b5563; margin-bottom: 2px; line-height: 1.4;">${b}</li>`).join('')}
-                                    </ul>
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>
-                `;
-            } else if (t === 'bold') {
-                // Bold template
-                resumeHTML = `
-                    <div style="${baseStyles} padding: 24px;">
-                        <h1 style="font-size: 20pt; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; border-bottom: 3px solid #111; padding-bottom: 6px; margin: 0 0 4px 0;">${r.name||'Your Name'}</h1>
-                        <div style="font-size: 10pt; color: #4b5563; margin-bottom: 4px;">${r.title||''}</div>
-                        <div style="font-size: 9pt; color: #6b7280; margin-bottom: 16px;">${r.contact?.email||''} • ${r.contact?.location||''}</div>
-                        
-                        <h2 style="background: #111; color: #fff; padding: 4px 10px; font-size: 9pt; font-weight: 700; text-transform: uppercase; margin: 0 0 10px 0; border-radius: 2px;">Summary</h2>
-                        <p style="font-size: 9pt; color: #374151; margin: 0 0 16px 0; line-height: 1.5;">${r.summary||''}</p>
-                        
-                        <h2 style="background: #111; color: #fff; padding: 4px 10px; font-size: 9pt; font-weight: 700; text-transform: uppercase; margin: 0 0 10px 0; border-radius: 2px;">Experience</h2>
-                        ${(r.experience||[]).map(j => `
-                            <div style="margin-bottom: 14px;">
-                                <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
-                                    <div>
-                                        <span style="font-weight: 700; font-size: 10pt; color: #2563eb;">${j.title}</span>
-                                        <span style="font-size: 9pt; color: #4b5563;"> • ${j.company}</span>
-                                    </div>
-                                    <span style="font-size: 8pt; color: #6b7280;">${j.duration}</span>
-                                </div>
-                                <ul style="margin: 4px 0 0 0; padding-left: 16px;">
-                                    ${(j.bullets||[]).map(b => `<li style="font-size: 9pt; color: #374151; margin-bottom: 3px; line-height: 1.4;">${b}</li>`).join('')}
-                                </ul>
-                            </div>
-                        `).join('')}
-                        
-                        <h2 style="background: #111; color: #fff; padding: 4px 10px; font-size: 9pt; font-weight: 700; text-transform: uppercase; margin: 0 0 10px 0; border-radius: 2px;">Skills</h2>
-                        <p style="font-size: 9pt; color: #374151; margin: 0 0 16px 0;">${(r.skills||[]).join(' • ')}</p>
-                        
-                        <h2 style="background: #111; color: #fff; padding: 4px 10px; font-size: 9pt; font-weight: 700; text-transform: uppercase; margin: 0 0 10px 0; border-radius: 2px;">Education</h2>
-                        ${(r.education||[]).map(e => `<p style="font-size: 9pt; color: #374151; margin: 0 0 4px 0;"><strong>${e.degree}</strong> — ${e.school}, ${e.year}</p>`).join('')}
-                    </div>
-                `;
-            } else {
-                // Clean template (default)
-                resumeHTML = `
-                    <div style="${baseStyles} padding: 24px;">
-                        <h1 style="font-size: 18pt; font-weight: 700; color: #111; margin: 0 0 2px 0;">${r.name||'Your Name'}</h1>
-                        <div style="font-size: 10pt; color: #4b5563; margin-bottom: 4px;">${r.title||''}</div>
-                        <div style="font-size: 9pt; color: #6b7280; margin-bottom: 14px;">${r.contact?.email||''} • ${r.contact?.location||''}</div>
-                        
-                        <h2 style="font-size: 10pt; font-weight: 700; color: #111; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #e5e7eb; padding-bottom: 4px; margin: 0 0 8px 0;">Summary</h2>
-                        <p style="font-size: 9pt; color: #374151; margin: 0 0 14px 0; line-height: 1.5;">${r.summary||''}</p>
-                        
-                        <h2 style="font-size: 10pt; font-weight: 700; color: #111; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #e5e7eb; padding-bottom: 4px; margin: 0 0 8px 0;">Experience</h2>
-                        ${(r.experience||[]).map(j => `
-                            <div style="margin-bottom: 12px;">
-                                <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
-                                    <div>
-                                        <span style="font-weight: 600; font-size: 10pt; color: #111;">${j.title}</span>
-                                        <span style="font-size: 9pt; color: #4b5563;"> • ${j.company}</span>
-                                    </div>
-                                    <span style="font-size: 8pt; color: #6b7280;">${j.duration}</span>
-                                </div>
-                                <ul style="margin: 4px 0 0 0; padding-left: 16px;">
-                                    ${(j.bullets||[]).map(b => `<li style="font-size: 9pt; color: #374151; margin-bottom: 2px; line-height: 1.4;">${b}</li>`).join('')}
-                                </ul>
-                            </div>
-                        `).join('')}
-                        
-                        <h2 style="font-size: 10pt; font-weight: 700; color: #111; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #e5e7eb; padding-bottom: 4px; margin: 0 0 8px 0;">Skills</h2>
-                        <p style="font-size: 9pt; color: #374151; margin: 0 0 14px 0;">${(r.skills||[]).join(' • ')}</p>
-                        
-                        <h2 style="font-size: 10pt; font-weight: 700; color: #111; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #e5e7eb; padding-bottom: 4px; margin: 0 0 8px 0;">Education</h2>
-                        ${(r.education||[]).map(e => `<p style="font-size: 9pt; color: #374151; margin: 0 0 4px 0;"><strong>${e.degree}</strong> — ${e.school}, ${e.year}</p>`).join('')}
-                    </div>
-                `;
-            }
-            
-            // Create container for PDF
-            const pdfContainer = document.createElement('div');
-            pdfContainer.style.cssText = `
-                position: fixed;
-                left: -9999px;
-                top: 0;
-                width: 8.5in;
-                min-height: 11in;
-                background: white;
-                box-sizing: border-box;
-            `;
-            pdfContainer.innerHTML = resumeHTML;
-            document.body.appendChild(pdfContainer);
-            
-            // Generate PDF
             setTimeout(() => {
-                html2pdf().set({
-                    margin: [0.4, 0.4, 0.4, 0.4],
-                    filename: (r.name || 'resume').replace(/[^a-zA-Z0-9]/g, '_') + '.pdf',
-                    image: { type: 'jpeg', quality: 0.98 },
-                    html2canvas: { 
-                        scale: 2,
-                        useCORS: true,
-                        logging: false
-                    },
-                    jsPDF: { 
-                        unit: 'in', 
-                        format: 'letter', 
-                        orientation: 'portrait'
+                try {
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF();
+                    const pageWidth = doc.internal.pageSize.getWidth();
+                    const margin = 20;
+                    const maxWidth = pageWidth - margin * 2;
+                    let y = 20;
+                    
+                    // Helper function to add text and handle page breaks
+                    function checkPageBreak(needed) {
+                        if (y + needed > 280) {
+                            doc.addPage();
+                            y = 20;
+                        }
                     }
-                }).from(pdfContainer).save().then(() => {
-                    document.body.removeChild(pdfContainer);
+                    
+                    // Name
+                    doc.setFontSize(18);
+                    doc.setFont(undefined, 'bold');
+                    doc.setTextColor(17, 24, 39);
+                    doc.text(r.name || 'Your Name', margin, y);
+                    y += 8;
+                    
+                    // Title
+                    doc.setFontSize(11);
+                    doc.setFont(undefined, 'normal');
+                    doc.setTextColor(75, 85, 99);
+                    doc.text(r.title || '', margin, y);
+                    y += 6;
+                    
+                    // Contact
+                    doc.setFontSize(9);
+                    doc.setTextColor(107, 114, 128);
+                    const contactText = [r.contact?.email, r.contact?.phone, r.contact?.location].filter(Boolean).join(' | ');
+                    doc.text(contactText, margin, y);
+                    y += 12;
+                    
+                    // Summary
+                    if (r.summary) {
+                        doc.setTextColor(17, 24, 39);
+                        doc.setFontSize(11);
+                        doc.setFont(undefined, 'bold');
+                        doc.text('SUMMARY', margin, y);
+                        doc.setDrawColor(229, 231, 235);
+                        doc.line(margin, y + 2, pageWidth - margin, y + 2);
+                        y += 8;
+                        
+                        doc.setFontSize(9);
+                        doc.setFont(undefined, 'normal');
+                        doc.setTextColor(55, 65, 81);
+                        const summaryLines = doc.splitTextToSize(r.summary, maxWidth);
+                        doc.text(summaryLines, margin, y);
+                        y += summaryLines.length * 4.5 + 8;
+                    }
+                    
+                    // Experience
+                    if (r.experience && r.experience.length > 0) {
+                        checkPageBreak(20);
+                        doc.setTextColor(17, 24, 39);
+                        doc.setFontSize(11);
+                        doc.setFont(undefined, 'bold');
+                        doc.text('EXPERIENCE', margin, y);
+                        doc.setDrawColor(229, 231, 235);
+                        doc.line(margin, y + 2, pageWidth - margin, y + 2);
+                        y += 10;
+                        
+                        r.experience.forEach(job => {
+                            checkPageBreak(25);
+                            
+                            // Job title and company
+                            doc.setFontSize(10);
+                            doc.setFont(undefined, 'bold');
+                            doc.setTextColor(17, 24, 39);
+                            doc.text(job.title || '', margin, y);
+                            
+                            doc.setFont(undefined, 'normal');
+                            doc.setTextColor(107, 114, 128);
+                            const companyDate = (job.company || '') + ' | ' + (job.duration || '');
+                            doc.text(companyDate, margin + 2, y + 5);
+                            y += 12;
+                            
+                            // Bullets
+                            if (job.bullets && job.bullets.length > 0) {
+                                doc.setFontSize(9);
+                                doc.setTextColor(55, 65, 81);
+                                job.bullets.forEach(bullet => {
+                                    checkPageBreak(10);
+                                    const bulletText = '• ' + bullet;
+                                    const bulletLines = doc.splitTextToSize(bulletText, maxWidth - 5);
+                                    doc.text(bulletLines, margin + 2, y);
+                                    y += bulletLines.length * 4 + 2;
+                                });
+                            }
+                            y += 6;
+                        });
+                    }
+                    
+                    // Skills
+                    if (r.skills && r.skills.length > 0) {
+                        checkPageBreak(20);
+                        doc.setTextColor(17, 24, 39);
+                        doc.setFontSize(11);
+                        doc.setFont(undefined, 'bold');
+                        doc.text('SKILLS', margin, y);
+                        doc.setDrawColor(229, 231, 235);
+                        doc.line(margin, y + 2, pageWidth - margin, y + 2);
+                        y += 8;
+                        
+                        doc.setFontSize(9);
+                        doc.setFont(undefined, 'normal');
+                        doc.setTextColor(55, 65, 81);
+                        const skillsText = r.skills.join(' • ');
+                        const skillsLines = doc.splitTextToSize(skillsText, maxWidth);
+                        doc.text(skillsLines, margin, y);
+                        y += skillsLines.length * 4.5 + 8;
+                    }
+                    
+                    // Education
+                    if (r.education && r.education.length > 0) {
+                        checkPageBreak(20);
+                        doc.setTextColor(17, 24, 39);
+                        doc.setFontSize(11);
+                        doc.setFont(undefined, 'bold');
+                        doc.text('EDUCATION', margin, y);
+                        doc.setDrawColor(229, 231, 235);
+                        doc.line(margin, y + 2, pageWidth - margin, y + 2);
+                        y += 8;
+                        
+                        doc.setFontSize(9);
+                        doc.setFont(undefined, 'normal');
+                        doc.setTextColor(55, 65, 81);
+                        r.education.forEach(edu => {
+                            const eduText = (edu.degree || '') + ' — ' + (edu.school || '') + ', ' + (edu.year || '');
+                            doc.text(eduText, margin, y);
+                            y += 5;
+                        });
+                    }
+                    
+                    // Save
+                    const filename = (r.name || 'resume').replace(/[^a-zA-Z0-9]/g, '_') + '.pdf';
+                    doc.save(filename);
                     hideLoading();
-                }).catch(err => {
+                    
+                } catch (err) {
                     console.error('PDF generation error:', err);
-                    document.body.removeChild(pdfContainer);
                     hideLoading();
-                    alert('Error generating PDF. Please try again.');
-                });
-            }, 500);
+                    alert('Error generating PDF: ' + err.message);
+                }
+            }, 300);
         }
 
         // Loading messages
