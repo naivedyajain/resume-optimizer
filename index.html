@@ -1019,12 +1019,16 @@
         
         function closePaymentModal() {
             document.getElementById('payment-modal').classList.add('hidden');
-            resetPaymentModal();
+            // Reset modal after a delay so user doesn't see the transition
+            setTimeout(resetPaymentModal, 300);
         }
         
         function resetPaymentModal() {
             const modal = document.getElementById('payment-modal');
-            modal.querySelector('.payment-card').innerHTML = `
+            if (!modal) return;
+            const card = modal.querySelector('.payment-card');
+            if (!card) return;
+            card.innerHTML = `
                 <button class="payment-close" onclick="closePaymentModal()">&times;</button>
                 <div class="payment-icon">
                     <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1061,7 +1065,6 @@
                     Secured by Razorpay
                 </div>
             `;
-            modal.classList.add('hidden');
         }
         
         function initiatePayment() {
@@ -1106,9 +1109,6 @@
         
         function generateAndDownloadPDF(){
             const r = state.resume;
-            console.log('generateAndDownloadPDF called');
-            console.log('state.resume:', r);
-            console.log('state.resume JSON:', JSON.stringify(r, null, 2));
             
             if (!r) {
                 alert('No resume to download');
@@ -1122,15 +1122,27 @@
             
             loading('pdf');
             
+            // Helper to sanitize text for PDF (remove special chars that break jsPDF)
+            function sanitize(text) {
+                if (!text) return '';
+                return String(text)
+                    .replace(/[\u2018\u2019]/g, "'")  // Smart quotes
+                    .replace(/[\u201C\u201D]/g, '"')  // Smart double quotes
+                    .replace(/\u2013/g, '-')          // En dash
+                    .replace(/\u2014/g, '--')         // Em dash
+                    .replace(/\u2026/g, '...')        // Ellipsis
+                    .replace(/\u00A0/g, ' ')          // Non-breaking space
+                    .replace(/[^\x00-\x7F]/g, function(char) {
+                        // Keep common symbols, replace others
+                        const allowed = {'₹': 'Rs.', '•': '-', '→': '->', '←': '<-', '✓': '√'};
+                        return allowed[char] || '';
+                    });
+            }
+            
             setTimeout(() => {
                 try {
-                    console.log('Starting PDF generation...');
                     const { jsPDF } = window.jspdf;
-                    console.log('jsPDF loaded:', !!jsPDF);
-                    
                     const doc = new jsPDF();
-                    console.log('doc created:', !!doc);
-                    
                     const pageWidth = doc.internal.pageSize.getWidth();
                     const margin = 20;
                     const maxWidth = pageWidth - margin * 2;
@@ -1148,20 +1160,20 @@
                     doc.setFontSize(18);
                     doc.setFont(undefined, 'bold');
                     doc.setTextColor(17, 24, 39);
-                    doc.text(r.name || 'Your Name', margin, y);
+                    doc.text(sanitize(r.name) || 'Your Name', margin, y);
                     y += 8;
                     
                     // Title
                     doc.setFontSize(11);
                     doc.setFont(undefined, 'normal');
                     doc.setTextColor(75, 85, 99);
-                    doc.text(r.title || '', margin, y);
+                    doc.text(sanitize(r.title) || '', margin, y);
                     y += 6;
                     
                     // Contact
                     doc.setFontSize(9);
                     doc.setTextColor(107, 114, 128);
-                    const contactText = [r.contact?.email, r.contact?.phone, r.contact?.location].filter(Boolean).join(' | ');
+                    const contactText = [r.contact?.email, r.contact?.phone, r.contact?.location].filter(Boolean).map(sanitize).join(' | ');
                     doc.text(contactText, margin, y);
                     y += 12;
                     
@@ -1178,7 +1190,7 @@
                         doc.setFontSize(9);
                         doc.setFont(undefined, 'normal');
                         doc.setTextColor(55, 65, 81);
-                        const summaryLines = doc.splitTextToSize(r.summary, maxWidth);
+                        const summaryLines = doc.splitTextToSize(sanitize(r.summary), maxWidth);
                         doc.text(summaryLines, margin, y);
                         y += summaryLines.length * 4.5 + 8;
                     }
@@ -1201,11 +1213,11 @@
                             doc.setFontSize(10);
                             doc.setFont(undefined, 'bold');
                             doc.setTextColor(17, 24, 39);
-                            doc.text(job.title || '', margin, y);
+                            doc.text(sanitize(job.title) || '', margin, y);
                             
                             doc.setFont(undefined, 'normal');
                             doc.setTextColor(107, 114, 128);
-                            const companyDate = (job.company || '') + ' | ' + (job.duration || '');
+                            const companyDate = sanitize(job.company || '') + ' | ' + sanitize(job.duration || '');
                             doc.text(companyDate, margin + 2, y + 5);
                             y += 12;
                             
@@ -1215,7 +1227,7 @@
                                 doc.setTextColor(55, 65, 81);
                                 job.bullets.forEach(bullet => {
                                     checkPageBreak(10);
-                                    const bulletText = '• ' + bullet;
+                                    const bulletText = '- ' + sanitize(bullet);
                                     const bulletLines = doc.splitTextToSize(bulletText, maxWidth - 5);
                                     doc.text(bulletLines, margin + 2, y);
                                     y += bulletLines.length * 4 + 2;
@@ -1239,7 +1251,7 @@
                         doc.setFontSize(9);
                         doc.setFont(undefined, 'normal');
                         doc.setTextColor(55, 65, 81);
-                        const skillsText = r.skills.join(' • ');
+                        const skillsText = r.skills.map(sanitize).join(' | ');
                         const skillsLines = doc.splitTextToSize(skillsText, maxWidth);
                         doc.text(skillsLines, margin, y);
                         y += skillsLines.length * 4.5 + 8;
@@ -1260,14 +1272,14 @@
                         doc.setFont(undefined, 'normal');
                         doc.setTextColor(55, 65, 81);
                         r.education.forEach(edu => {
-                            const eduText = (edu.degree || '') + ' — ' + (edu.school || '') + ', ' + (edu.year || '');
+                            const eduText = sanitize(edu.degree || '') + ' - ' + sanitize(edu.school || '') + ', ' + sanitize(edu.year || '');
                             doc.text(eduText, margin, y);
                             y += 5;
                         });
                     }
                     
                     // Save
-                    const filename = (r.name || 'resume').replace(/[^a-zA-Z0-9]/g, '_') + '.pdf';
+                    const filename = sanitize(r.name || 'resume').replace(/[^a-zA-Z0-9]/g, '_') + '.pdf';
                     doc.save(filename);
                     hideLoading();
                     
