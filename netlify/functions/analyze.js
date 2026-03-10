@@ -12,7 +12,7 @@ const CONFIG = {
     // Add: ANTHROPIC_API_KEY = your_api_key_here
     
     model: 'claude-sonnet-4-20250514',
-    maxTokens: 4096,
+    maxTokens: 16000,
     
     // Instance-specific context (customize for FaujiTech vs Akki.club)
     systemPrompt: `You are an expert resume consultant and career coach. Your goal is to help users create ATS-optimized, impactful resumes that get interviews.
@@ -278,44 +278,52 @@ ORIGINAL RESUME:
 ${resumeText}
 ---
 
-INSTRUCTIONS:
-1. Strengthen action verbs (Led, Built, Drove, Achieved, Scaled)
-2. Add metrics and numbers wherever possible
-3. Make summary punchy and achievement-focused
-4. Ensure each bullet starts with action verb
-5. Keep bullets concise (1-2 lines max)
-6. Organize skills by relevance
+CRITICAL RULES - YOU MUST FOLLOW:
+1. **INCLUDE EVERY SINGLE JOB** - List ALL work experience from the original. Do NOT skip, summarize, or omit ANY position.
+2. **KEEP ALL BULLET POINTS** - For each job, include ALL achievements. Improve the wording but keep every point.
+3. **PRESERVE ALL DETAILS** - Names, dates, companies, titles, numbers must all be preserved exactly.
+4. **NO REDACTION** - Do NOT use placeholders like "X%" or "[Company]". Use the ACTUAL values from the resume.
+5. **COMPLETE OUTPUT** - Your response must include the ENTIRE resume, not a shortened version.
 
-Return the improved resume as JSON:
+IMPROVEMENTS TO MAKE:
+- Strengthen action verbs (Led, Built, Drove, Achieved, Scaled, Delivered)
+- Keep all existing metrics and numbers (do NOT remove them)
+- Make summary punchy with the person's actual achievements
+- Ensure each bullet starts with action verb
+- Organize skills by relevance
+
+Return the COMPLETE improved resume as JSON. Include EVERY job and EVERY bullet point:
 {
-    "name": "Full Name",
-    "title": "Professional Title | Key Expertise",
+    "name": "Actual full name from resume",
+    "title": "Their actual title | Key Expertise",
     "contact": {
-        "email": "extracted or placeholder",
-        "linkedin": "extracted or placeholder",
-        "location": "extracted or placeholder",
-        "phone": "extracted or placeholder"
+        "email": "actual email",
+        "linkedin": "actual linkedin",
+        "location": "actual location",
+        "phone": "actual phone"
     },
-    "summary": "Improved 2-3 sentence summary",
+    "summary": "2-3 sentence summary using their REAL achievements and metrics",
     "experience": [
         {
-            "title": "Job Title",
-            "company": "Company Name",
-            "duration": "Date Range",
-            "bullets": ["Improved bullet 1", "Improved bullet 2", "Improved bullet 3"]
+            "title": "Actual Job Title",
+            "company": "Actual Company Name",
+            "duration": "Actual Date Range",
+            "bullets": ["All bullets for this job - improved but complete"]
         }
+        // REPEAT FOR EVERY JOB IN THE ORIGINAL - DO NOT SKIP ANY
     ],
-    "skills": ["Skill 1", "Skill 2"],
+    "skills": ["All skills from original"],
     "education": [
         {
-            "degree": "Degree",
-            "school": "School",
-            "year": "Year"
+            "degree": "Actual Degree",
+            "school": "Actual School",
+            "year": "Actual Year"
         }
     ]
 }
 
-Return ONLY the JSON, no additional text.`;
+FINAL CHECK: Count the jobs in your output. It MUST match the original resume. Do not truncate.
+Return ONLY valid JSON, no other text.`;
 }
 
 function buildJDOptimizePrompt(resumeText, jdText) {
@@ -331,50 +339,55 @@ JOB DESCRIPTION:
 ${jdText}
 ---
 
-INSTRUCTIONS:
-1. Identify key requirements from the JD
-2. Reorder and emphasize relevant experience
-3. Add keywords from JD naturally into resume
-4. Adjust summary to match role requirements
-5. Highlight transferable skills that match JD
-6. Note any skill gaps
+CRITICAL RULES:
+1. **KEEP ALL JOBS** - Include EVERY position from the original resume
+2. **NO REDACTION** - Use ACTUAL names, numbers, dates - no placeholders
+3. **PRESERVE METRICS** - Keep all $, %, numbers exactly as they appear
+4. **COMPLETE OUTPUT** - Include the entire resume, not a summary
 
-Return the optimized resume as JSON:
+OPTIMIZATION INSTRUCTIONS:
+1. Reorder bullets to prioritize JD-relevant achievements (but keep all bullets)
+2. Add keywords from JD naturally into existing content
+3. Adjust summary to highlight relevant experience
+4. Keep all original achievements - just reorder by relevance
+
+Return the COMPLETE optimized resume as JSON:
 {
-    "name": "Full Name",
-    "title": "Title matching JD focus",
+    "name": "Actual Name",
+    "title": "Title aligned with JD",
     "contact": {
-        "email": "",
-        "linkedin": "",
-        "location": "",
-        "phone": ""
+        "email": "actual email",
+        "linkedin": "actual linkedin",
+        "location": "actual location",
+        "phone": "actual phone"
     },
-    "summary": "Summary tailored to this specific role",
+    "summary": "Summary highlighting JD-relevant experience with REAL metrics",
     "experience": [
         {
-            "title": "Job Title",
-            "company": "Company Name",
-            "duration": "Date Range",
-            "bullets": ["Bullet emphasizing JD-relevant achievement"]
+            "title": "Actual Job Title",
+            "company": "Actual Company",
+            "duration": "Actual Dates",
+            "bullets": ["All bullets - reordered by JD relevance"]
         }
+        // INCLUDE ALL JOBS
     ],
-    "skills": ["Skills prioritized by JD relevance"],
+    "skills": ["Skills reordered by JD relevance"],
     "education": [
         {
-            "degree": "Degree",
-            "school": "School",
-            "year": "Year"
+            "degree": "Actual Degree",
+            "school": "Actual School",
+            "year": "Actual Year"
         }
     ],
     "jdMatch": {
-        "score": <number 0-100>,
-        "matchedKeywords": ["keyword1", "keyword2"],
-        "missingKeywords": ["keyword user should add/learn"],
-        "recommendations": ["Specific recommendation for this application"]
+        "score": 85,
+        "matchedKeywords": ["keywords found"],
+        "missingKeywords": ["keywords to add"],
+        "recommendations": ["specific suggestions"]
     }
 }
 
-Return ONLY the JSON, no additional text.`;
+Return ONLY valid JSON, no other text.`;
 }
 
 function buildChatPrompt(currentResume, chatHistory) {
@@ -394,23 +407,29 @@ CONVERSATION HISTORY:
 ${historyText}
 ---
 
-Based on the user's latest request, make the appropriate changes to the resume.
+CRITICAL RULES:
+1. **KEEP ALL DATA** - Never redact or remove any information
+2. **PRESERVE ALL JOBS** - Include every position in your response
+3. **USE REAL VALUES** - No placeholders like "X%" - use actual numbers
+4. **COMPLETE OUTPUT** - Return the FULL resume, not just changed parts
+
+Based on the user's latest request, make the appropriate changes.
 
 Return your response as JSON:
 {
-    "message": "Your conversational response explaining what you changed",
+    "message": "Brief explanation of what you changed",
     "updatedResume": {
-        // Full updated resume object with same structure as input
-        "name": "...",
-        "title": "...",
-        "contact": {...},
-        "summary": "...",
-        "experience": [...],
-        "skills": [...],
-        "education": [...]
-    },
-    "changesApplied": ["Brief description of change 1", "Brief description of change 2"]
+        "name": "Keep actual name",
+        "title": "Keep or improve title",
+        "contact": {"email": "actual", "linkedin": "actual", "location": "actual", "phone": "actual"},
+        "summary": "Updated summary with real metrics",
+        "experience": [
+            // INCLUDE ALL JOBS - even ones you didn't change
+        ],
+        "skills": ["all skills"],
+        "education": [{"degree": "actual", "school": "actual", "year": "actual"}]
+    }
 }
 
-Return ONLY the JSON, no additional text.`;
+Return ONLY valid JSON.`;
 }
