@@ -1106,8 +1106,17 @@
         
         function generateAndDownloadPDF(){
             const r = state.resume;
+            console.log('generateAndDownloadPDF called');
+            console.log('state.resume:', r);
+            console.log('state.resume JSON:', JSON.stringify(r, null, 2));
+            
             if (!r) {
                 alert('No resume to download');
+                return;
+            }
+            
+            if (!r.name && !r.experience) {
+                alert('Resume data is empty. Please refine your resume first.');
                 return;
             }
             
@@ -1115,8 +1124,13 @@
             
             setTimeout(() => {
                 try {
+                    console.log('Starting PDF generation...');
                     const { jsPDF } = window.jspdf;
+                    console.log('jsPDF loaded:', !!jsPDF);
+                    
                     const doc = new jsPDF();
+                    console.log('doc created:', !!doc);
+                    
                     const pageWidth = doc.internal.pageSize.getWidth();
                     const margin = 20;
                     const maxWidth = pageWidth - margin * 2;
