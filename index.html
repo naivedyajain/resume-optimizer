@@ -970,7 +970,13 @@
             });
         }
 
-        function setTemplate(t){state.template=t;document.querySelectorAll('.template-btn').forEach(b=>b.classList.toggle('active',b.dataset.t===t));renderResume()}
+        function setTemplate(t){
+            console.log('setTemplate called with:', t);
+            state.template=t;
+            console.log('state.template is now:', state.template);
+            document.querySelectorAll('.template-btn').forEach(b=>b.classList.toggle('active',b.dataset.t===t));
+            renderResume();
+        }
 
         function showComparison() {
             const before=state.originalScore||65;
@@ -1159,7 +1165,10 @@
         
         function generateAndDownloadPDF(){
             const r = state.resume;
-            const template = state.template; // 'clean', 'modern', or 'bold'
+            const template = state.template || 'clean'; // 'clean', 'modern', or 'bold'
+            
+            console.log('Generating PDF with template:', template);
+            console.log('Current state.template:', state.template);
             
             if (!r) {
                 alert('No resume to download');
@@ -1191,6 +1200,9 @@
             
             setTimeout(() => {
                 try {
+                    // DEBUG: Show which template is being used
+                    console.log('PDF TEMPLATE:', template);
+                    
                     const { jsPDF } = window.jspdf;
                     const doc = new jsPDF();
                     const pageWidth = doc.internal.pageSize.getWidth();
@@ -1204,6 +1216,11 @@
                             y = 20;
                         }
                     }
+                    
+                    // Add template name to PDF for debugging
+                    doc.setFontSize(8);
+                    doc.setTextColor(200, 200, 200);
+                    doc.text('Template: ' + template, pageWidth - 40, 10);
                     
                     if (template === 'bold') {
                         // BOLD TEMPLATE - Dark headers, uppercase name
