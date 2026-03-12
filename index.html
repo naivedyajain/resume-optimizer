@@ -647,7 +647,11 @@
     <script>
         const state = {text:'',file:null,ats:null,originalScore:0,resume:null,chat:[],template:'clean',userEmail:null,isUnlocked:false,isPaid:false};
         const API = '/.netlify/functions/analyze';
-        const RAZORPAY_PAYMENT_LINK = 'https://rzp.io/rzp/GFgkhGt';
+        
+        // Razorpay Configuration
+        // NOTE: Replace with your Razorpay Key ID (starts with rzp_live_ or rzp_test_)
+        const RAZORPAY_KEY_ID = 'rzp_live_YOUR_KEY_HERE'; // Get from Razorpay Dashboard > Settings > API Keys
+        const PAYMENT_AMOUNT = 10000; // Amount in paise (100 rupees = 10000 paise)
 
         // Check if user already paid (stored in localStorage)
         function checkPaymentStatus() {
@@ -1068,11 +1072,57 @@
         }
         
         function initiatePayment() {
-            // Open Razorpay payment link in new tab
-            window.open(RAZORPAY_PAYMENT_LINK, '_blank');
+            // Close the payment modal first
+            closePaymentModal();
             
-            // Show confirmation modal
-            showPaymentConfirmation();
+            // Get user email if available
+            const userEmail = state.userEmail || '';
+            const userName = state.resume?.name || 'Customer';
+            
+            // Razorpay Checkout options
+            const options = {
+                key: RAZORPAY_KEY_ID,
+                amount: PAYMENT_AMOUNT,
+                currency: 'INR',
+                name: 'ResumeAI',
+                description: 'Resume PDF Download',
+                image: 'https://refineresume4me.netlify.app/favicon.ico',
+                handler: function(response) {
+                    // Payment successful!
+                    console.log('Payment successful:', response);
+                    state.isPaid = true;
+                    localStorage.setItem('resumeai_paid', 'true');
+                    
+                    // Auto-download PDF
+                    alert('Payment successful! Downloading your resume...');
+                    generateAndDownloadPDF();
+                },
+                prefill: {
+                    name: userName,
+                    email: userEmail
+                },
+                theme: {
+                    color: '#2563eb'
+                },
+                modal: {
+                    ondismiss: function() {
+                        console.log('Payment modal closed');
+                    }
+                }
+            };
+            
+            // Open Razorpay Checkout
+            try {
+                const rzp = new Razorpay(options);
+                rzp.on('payment.failed', function(response) {
+                    console.error('Payment failed:', response.error);
+                    alert('Payment failed: ' + response.error.description);
+                });
+                rzp.open();
+            } catch (err) {
+                console.error('Razorpay error:', err);
+                alert('Error opening payment. Please try again.');
+            }
         }
         
         function showPaymentConfirmation() {
@@ -1109,6 +1159,7 @@
         
         function generateAndDownloadPDF(){
             const r = state.resume;
+            const template = state.template; // 'clean', 'modern', or 'bold'
             
             if (!r) {
                 alert('No resume to download');
@@ -1126,15 +1177,14 @@
             function sanitize(text) {
                 if (!text) return '';
                 return String(text)
-                    .replace(/[\u2018\u2019]/g, "'")  // Smart quotes
-                    .replace(/[\u201C\u201D]/g, '"')  // Smart double quotes
-                    .replace(/\u2013/g, '-')          // En dash
-                    .replace(/\u2014/g, '--')         // Em dash
-                    .replace(/\u2026/g, '...')        // Ellipsis
-                    .replace(/\u00A0/g, ' ')          // Non-breaking space
+                    .replace(/[\u2018\u2019]/g, "'")
+                    .replace(/[\u201C\u201D]/g, '"')
+                    .replace(/\u2013/g, '-')
+                    .replace(/\u2014/g, '--')
+                    .replace(/\u2026/g, '...')
+                    .replace(/\u00A0/g, ' ')
                     .replace(/[^\x00-\x7F]/g, function(char) {
-                        // Keep common symbols, replace others
-                        const allowed = {'₹': 'Rs.', '•': '-', '→': '->', '←': '<-', '✓': '√'};
+                        const allowed = {'₹': 'Rs.', '•': '-', '→': '->', '←': '<-', '✓': 'Yes'};
                         return allowed[char] || '';
                     });
             }
@@ -1148,7 +1198,6 @@
                     const maxWidth = pageWidth - margin * 2;
                     let y = 20;
                     
-                    // Helper function to add text and handle page breaks
                     function checkPageBreak(needed) {
                         if (y + needed > 280) {
                             doc.addPage();
@@ -1156,130 +1205,415 @@
                         }
                     }
                     
-                    // Name
-                    doc.setFontSize(18);
-                    doc.setFont(undefined, 'bold');
-                    doc.setTextColor(17, 24, 39);
-                    doc.text(sanitize(r.name) || 'Your Name', margin, y);
-                    y += 8;
-                    
-                    // Title
-                    doc.setFontSize(11);
-                    doc.setFont(undefined, 'normal');
-                    doc.setTextColor(75, 85, 99);
-                    doc.text(sanitize(r.title) || '', margin, y);
-                    y += 6;
-                    
-                    // Contact
-                    doc.setFontSize(9);
-                    doc.setTextColor(107, 114, 128);
-                    const contactText = [r.contact?.email, r.contact?.phone, r.contact?.location].filter(Boolean).map(sanitize).join(' | ');
-                    doc.text(contactText, margin, y);
-                    y += 12;
-                    
-                    // Summary
-                    if (r.summary) {
-                        doc.setTextColor(17, 24, 39);
-                        doc.setFontSize(11);
-                        doc.setFont(undefined, 'bold');
-                        doc.text('SUMMARY', margin, y);
-                        doc.setDrawColor(229, 231, 235);
-                        doc.line(margin, y + 2, pageWidth - margin, y + 2);
-                        y += 8;
+                    if (template === 'bold') {
+                        // BOLD TEMPLATE - Dark headers, uppercase name
                         
-                        doc.setFontSize(9);
+                        // Name - UPPERCASE with thick underline
+                        doc.setFontSize(20);
+                        doc.setFont(undefined, 'bold');
+                        doc.setTextColor(0, 0, 0);
+                        const nameText = sanitize(r.name || 'YOUR NAME').toUpperCase();
+                        doc.text(nameText, margin, y);
+                        doc.setDrawColor(0, 0, 0);
+                        doc.setLineWidth(1);
+                        doc.line(margin, y + 3, pageWidth - margin, y + 3);
+                        y += 12;
+                        
+                        // Title
+                        doc.setFontSize(11);
                         doc.setFont(undefined, 'normal');
-                        doc.setTextColor(55, 65, 81);
-                        const summaryLines = doc.splitTextToSize(sanitize(r.summary), maxWidth);
-                        doc.text(summaryLines, margin, y);
-                        y += summaryLines.length * 4.5 + 8;
-                    }
-                    
-                    // Experience
-                    if (r.experience && r.experience.length > 0) {
-                        checkPageBreak(20);
-                        doc.setTextColor(17, 24, 39);
-                        doc.setFontSize(11);
-                        doc.setFont(undefined, 'bold');
-                        doc.text('EXPERIENCE', margin, y);
-                        doc.setDrawColor(229, 231, 235);
-                        doc.line(margin, y + 2, pageWidth - margin, y + 2);
-                        y += 10;
+                        doc.setTextColor(75, 85, 99);
+                        doc.text(sanitize(r.title) || '', margin, y);
+                        y += 6;
                         
-                        r.experience.forEach(job => {
-                            checkPageBreak(25);
-                            
-                            // Job title and company
-                            doc.setFontSize(10);
+                        // Contact
+                        doc.setFontSize(9);
+                        doc.setTextColor(107, 114, 128);
+                        const contactText = [r.contact?.email, r.contact?.phone, r.contact?.location].filter(Boolean).map(sanitize).join(' | ');
+                        doc.text(contactText, margin, y);
+                        y += 14;
+                        
+                        // Summary - Black header box
+                        if (r.summary) {
+                            doc.setFillColor(17, 24, 39);
+                            doc.rect(margin, y - 4, 35, 7, 'F');
+                            doc.setFontSize(9);
                             doc.setFont(undefined, 'bold');
-                            doc.setTextColor(17, 24, 39);
-                            doc.text(sanitize(job.title) || '', margin, y);
+                            doc.setTextColor(255, 255, 255);
+                            doc.text('SUMMARY', margin + 2, y);
+                            y += 8;
                             
+                            doc.setFontSize(9);
                             doc.setFont(undefined, 'normal');
-                            doc.setTextColor(107, 114, 128);
-                            const companyDate = sanitize(job.company || '') + ' | ' + sanitize(job.duration || '');
-                            doc.text(companyDate, margin + 2, y + 5);
-                            y += 12;
+                            doc.setTextColor(55, 65, 81);
+                            const summaryLines = doc.splitTextToSize(sanitize(r.summary), maxWidth);
+                            doc.text(summaryLines, margin, y);
+                            y += summaryLines.length * 4.5 + 10;
+                        }
+                        
+                        // Experience - Black header box
+                        if (r.experience && r.experience.length > 0) {
+                            checkPageBreak(20);
+                            doc.setFillColor(17, 24, 39);
+                            doc.rect(margin, y - 4, 40, 7, 'F');
+                            doc.setFontSize(9);
+                            doc.setFont(undefined, 'bold');
+                            doc.setTextColor(255, 255, 255);
+                            doc.text('EXPERIENCE', margin + 2, y);
+                            y += 10;
                             
-                            // Bullets
-                            if (job.bullets && job.bullets.length > 0) {
+                            r.experience.forEach(job => {
+                                checkPageBreak(25);
+                                
+                                // Job title in BLUE
+                                doc.setFontSize(10);
+                                doc.setFont(undefined, 'bold');
+                                doc.setTextColor(37, 99, 235);
+                                doc.text(sanitize(job.title) || '', margin, y);
+                                
+                                doc.setFont(undefined, 'normal');
+                                doc.setTextColor(75, 85, 99);
+                                doc.text(' | ' + sanitize(job.company || ''), margin + doc.getTextWidth(sanitize(job.title) || '') + 2, y);
+                                
+                                doc.setFontSize(8);
+                                doc.setTextColor(107, 114, 128);
+                                doc.text(sanitize(job.duration || ''), pageWidth - margin - doc.getTextWidth(sanitize(job.duration || '')), y);
+                                y += 6;
+                                
+                                if (job.bullets && job.bullets.length > 0) {
+                                    doc.setFontSize(9);
+                                    doc.setTextColor(55, 65, 81);
+                                    job.bullets.forEach(bullet => {
+                                        checkPageBreak(10);
+                                        const bulletText = '- ' + sanitize(bullet);
+                                        const bulletLines = doc.splitTextToSize(bulletText, maxWidth - 5);
+                                        doc.text(bulletLines, margin + 2, y);
+                                        y += bulletLines.length * 4 + 2;
+                                    });
+                                }
+                                y += 6;
+                            });
+                        }
+                        
+                        // Skills - Black header box
+                        if (r.skills && r.skills.length > 0) {
+                            checkPageBreak(20);
+                            doc.setFillColor(17, 24, 39);
+                            doc.rect(margin, y - 4, 25, 7, 'F');
+                            doc.setFontSize(9);
+                            doc.setFont(undefined, 'bold');
+                            doc.setTextColor(255, 255, 255);
+                            doc.text('SKILLS', margin + 2, y);
+                            y += 8;
+                            
+                            doc.setFontSize(9);
+                            doc.setFont(undefined, 'normal');
+                            doc.setTextColor(55, 65, 81);
+                            const skillsText = r.skills.map(sanitize).join(' | ');
+                            const skillsLines = doc.splitTextToSize(skillsText, maxWidth);
+                            doc.text(skillsLines, margin, y);
+                            y += skillsLines.length * 4.5 + 10;
+                        }
+                        
+                        // Education - Black header box
+                        if (r.education && r.education.length > 0) {
+                            checkPageBreak(20);
+                            doc.setFillColor(17, 24, 39);
+                            doc.rect(margin, y - 4, 38, 7, 'F');
+                            doc.setFontSize(9);
+                            doc.setFont(undefined, 'bold');
+                            doc.setTextColor(255, 255, 255);
+                            doc.text('EDUCATION', margin + 2, y);
+                            y += 8;
+                            
+                            doc.setFontSize(9);
+                            doc.setFont(undefined, 'normal');
+                            doc.setTextColor(55, 65, 81);
+                            r.education.forEach(edu => {
+                                const eduText = sanitize(edu.degree || '') + ' - ' + sanitize(edu.school || '') + ', ' + sanitize(edu.year || '');
+                                doc.text(eduText, margin, y);
+                                y += 5;
+                            });
+                        }
+                        
+                    } else if (template === 'modern') {
+                        // MODERN TEMPLATE - Two column with sidebar
+                        const sidebarWidth = 55;
+                        const mainX = margin + sidebarWidth + 5;
+                        const mainWidth = pageWidth - mainX - margin;
+                        
+                        // Draw sidebar background
+                        doc.setFillColor(241, 245, 249);
+                        doc.rect(margin - 5, 10, sidebarWidth + 5, 277, 'F');
+                        
+                        // SIDEBAR CONTENT
+                        let sideY = 20;
+                        
+                        // Skills in sidebar
+                        if (r.skills && r.skills.length > 0) {
+                            doc.setFontSize(9);
+                            doc.setFont(undefined, 'bold');
+                            doc.setTextColor(30, 41, 59);
+                            doc.text('SKILLS', margin, sideY);
+                            doc.setDrawColor(203, 213, 225);
+                            doc.line(margin, sideY + 2, margin + sidebarWidth - 10, sideY + 2);
+                            sideY += 8;
+                            
+                            doc.setFontSize(8);
+                            doc.setFont(undefined, 'normal');
+                            doc.setTextColor(55, 65, 81);
+                            r.skills.forEach(skill => {
+                                const skillLines = doc.splitTextToSize(sanitize(skill), sidebarWidth - 10);
+                                doc.text(skillLines, margin, sideY);
+                                sideY += skillLines.length * 3.5 + 1;
+                            });
+                            sideY += 8;
+                        }
+                        
+                        // Education in sidebar
+                        if (r.education && r.education.length > 0) {
+                            doc.setFontSize(9);
+                            doc.setFont(undefined, 'bold');
+                            doc.setTextColor(30, 41, 59);
+                            doc.text('EDUCATION', margin, sideY);
+                            doc.setDrawColor(203, 213, 225);
+                            doc.line(margin, sideY + 2, margin + sidebarWidth - 10, sideY + 2);
+                            sideY += 8;
+                            
+                            doc.setFontSize(8);
+                            doc.setTextColor(55, 65, 81);
+                            r.education.forEach(edu => {
+                                doc.setFont(undefined, 'bold');
+                                const degreeLines = doc.splitTextToSize(sanitize(edu.degree || ''), sidebarWidth - 10);
+                                doc.text(degreeLines, margin, sideY);
+                                sideY += degreeLines.length * 3.5;
+                                doc.setFont(undefined, 'normal');
+                                doc.text(sanitize(edu.school || ''), margin, sideY);
+                                sideY += 4;
+                                doc.text(sanitize(edu.year || ''), margin, sideY);
+                                sideY += 8;
+                            });
+                            sideY += 6;
+                        }
+                        
+                        // Contact in sidebar
+                        doc.setFontSize(9);
+                        doc.setFont(undefined, 'bold');
+                        doc.setTextColor(30, 41, 59);
+                        doc.text('CONTACT', margin, sideY);
+                        doc.setDrawColor(203, 213, 225);
+                        doc.line(margin, sideY + 2, margin + sidebarWidth - 10, sideY + 2);
+                        sideY += 8;
+                        
+                        doc.setFontSize(8);
+                        doc.setFont(undefined, 'normal');
+                        doc.setTextColor(55, 65, 81);
+                        if (r.contact?.email) { doc.text(sanitize(r.contact.email), margin, sideY); sideY += 4; }
+                        if (r.contact?.phone) { doc.text(sanitize(r.contact.phone), margin, sideY); sideY += 4; }
+                        if (r.contact?.location) { doc.text(sanitize(r.contact.location), margin, sideY); }
+                        
+                        // MAIN CONTENT
+                        y = 20;
+                        
+                        // Name
+                        doc.setFontSize(16);
+                        doc.setFont(undefined, 'bold');
+                        doc.setTextColor(17, 24, 39);
+                        doc.text(sanitize(r.name) || 'Your Name', mainX, y);
+                        y += 7;
+                        
+                        // Title
+                        doc.setFontSize(10);
+                        doc.setFont(undefined, 'normal');
+                        doc.setTextColor(71, 85, 105);
+                        doc.text(sanitize(r.title) || '', mainX, y);
+                        y += 12;
+                        
+                        // Summary
+                        if (r.summary) {
+                            doc.setFontSize(9);
+                            doc.setFont(undefined, 'bold');
+                            doc.setTextColor(30, 41, 59);
+                            doc.text('SUMMARY', mainX, y);
+                            doc.setDrawColor(226, 232, 240);
+                            doc.line(mainX, y + 2, pageWidth - margin, y + 2);
+                            y += 8;
+                            
+                            doc.setFontSize(8);
+                            doc.setFont(undefined, 'normal');
+                            doc.setTextColor(55, 65, 81);
+                            const summaryLines = doc.splitTextToSize(sanitize(r.summary), mainWidth);
+                            doc.text(summaryLines, mainX, y);
+                            y += summaryLines.length * 4 + 8;
+                        }
+                        
+                        // Experience
+                        if (r.experience && r.experience.length > 0) {
+                            doc.setFontSize(9);
+                            doc.setFont(undefined, 'bold');
+                            doc.setTextColor(30, 41, 59);
+                            doc.text('EXPERIENCE', mainX, y);
+                            doc.setDrawColor(226, 232, 240);
+                            doc.line(mainX, y + 2, pageWidth - margin, y + 2);
+                            y += 10;
+                            
+                            r.experience.forEach(job => {
+                                checkPageBreak(20);
+                                
                                 doc.setFontSize(9);
-                                doc.setTextColor(55, 65, 81);
-                                job.bullets.forEach(bullet => {
-                                    checkPageBreak(10);
-                                    const bulletText = '- ' + sanitize(bullet);
-                                    const bulletLines = doc.splitTextToSize(bulletText, maxWidth - 5);
-                                    doc.text(bulletLines, margin + 2, y);
-                                    y += bulletLines.length * 4 + 2;
-                                });
-                            }
-                            y += 6;
-                        });
-                    }
-                    
-                    // Skills
-                    if (r.skills && r.skills.length > 0) {
-                        checkPageBreak(20);
-                        doc.setTextColor(17, 24, 39);
-                        doc.setFontSize(11);
+                                doc.setFont(undefined, 'bold');
+                                doc.setTextColor(17, 24, 39);
+                                doc.text(sanitize(job.title) || '', mainX, y);
+                                y += 4;
+                                
+                                doc.setFontSize(8);
+                                doc.setFont(undefined, 'normal');
+                                doc.setTextColor(100, 116, 139);
+                                doc.text(sanitize(job.company || '') + ' | ' + sanitize(job.duration || ''), mainX, y);
+                                y += 5;
+                                
+                                if (job.bullets && job.bullets.length > 0) {
+                                    doc.setFontSize(8);
+                                    doc.setTextColor(75, 85, 99);
+                                    job.bullets.forEach(bullet => {
+                                        checkPageBreak(8);
+                                        const bulletText = '- ' + sanitize(bullet);
+                                        const bulletLines = doc.splitTextToSize(bulletText, mainWidth - 5);
+                                        doc.text(bulletLines, mainX + 2, y);
+                                        y += bulletLines.length * 3.5 + 1;
+                                    });
+                                }
+                                y += 5;
+                            });
+                        }
+                        
+                    } else {
+                        // CLEAN TEMPLATE (default) - Simple single column
+                        
+                        // Name
+                        doc.setFontSize(18);
                         doc.setFont(undefined, 'bold');
-                        doc.text('SKILLS', margin, y);
-                        doc.setDrawColor(229, 231, 235);
-                        doc.line(margin, y + 2, pageWidth - margin, y + 2);
+                        doc.setTextColor(17, 24, 39);
+                        doc.text(sanitize(r.name) || 'Your Name', margin, y);
                         y += 8;
                         
-                        doc.setFontSize(9);
-                        doc.setFont(undefined, 'normal');
-                        doc.setTextColor(55, 65, 81);
-                        const skillsText = r.skills.map(sanitize).join(' | ');
-                        const skillsLines = doc.splitTextToSize(skillsText, maxWidth);
-                        doc.text(skillsLines, margin, y);
-                        y += skillsLines.length * 4.5 + 8;
-                    }
-                    
-                    // Education
-                    if (r.education && r.education.length > 0) {
-                        checkPageBreak(20);
-                        doc.setTextColor(17, 24, 39);
+                        // Title
                         doc.setFontSize(11);
-                        doc.setFont(undefined, 'bold');
-                        doc.text('EDUCATION', margin, y);
-                        doc.setDrawColor(229, 231, 235);
-                        doc.line(margin, y + 2, pageWidth - margin, y + 2);
-                        y += 8;
-                        
-                        doc.setFontSize(9);
                         doc.setFont(undefined, 'normal');
-                        doc.setTextColor(55, 65, 81);
-                        r.education.forEach(edu => {
-                            const eduText = sanitize(edu.degree || '') + ' - ' + sanitize(edu.school || '') + ', ' + sanitize(edu.year || '');
-                            doc.text(eduText, margin, y);
-                            y += 5;
-                        });
+                        doc.setTextColor(75, 85, 99);
+                        doc.text(sanitize(r.title) || '', margin, y);
+                        y += 6;
+                        
+                        // Contact
+                        doc.setFontSize(9);
+                        doc.setTextColor(107, 114, 128);
+                        const contactText = [r.contact?.email, r.contact?.phone, r.contact?.location].filter(Boolean).map(sanitize).join(' | ');
+                        doc.text(contactText, margin, y);
+                        y += 12;
+                        
+                        // Summary
+                        if (r.summary) {
+                            doc.setTextColor(17, 24, 39);
+                            doc.setFontSize(11);
+                            doc.setFont(undefined, 'bold');
+                            doc.text('SUMMARY', margin, y);
+                            doc.setDrawColor(229, 231, 235);
+                            doc.setLineWidth(0.5);
+                            doc.line(margin, y + 2, pageWidth - margin, y + 2);
+                            y += 8;
+                            
+                            doc.setFontSize(9);
+                            doc.setFont(undefined, 'normal');
+                            doc.setTextColor(55, 65, 81);
+                            const summaryLines = doc.splitTextToSize(sanitize(r.summary), maxWidth);
+                            doc.text(summaryLines, margin, y);
+                            y += summaryLines.length * 4.5 + 8;
+                        }
+                        
+                        // Experience
+                        if (r.experience && r.experience.length > 0) {
+                            checkPageBreak(20);
+                            doc.setTextColor(17, 24, 39);
+                            doc.setFontSize(11);
+                            doc.setFont(undefined, 'bold');
+                            doc.text('EXPERIENCE', margin, y);
+                            doc.setDrawColor(229, 231, 235);
+                            doc.line(margin, y + 2, pageWidth - margin, y + 2);
+                            y += 10;
+                            
+                            r.experience.forEach(job => {
+                                checkPageBreak(25);
+                                
+                                doc.setFontSize(10);
+                                doc.setFont(undefined, 'bold');
+                                doc.setTextColor(17, 24, 39);
+                                doc.text(sanitize(job.title) || '', margin, y);
+                                
+                                doc.setFont(undefined, 'normal');
+                                doc.setTextColor(107, 114, 128);
+                                const companyDate = sanitize(job.company || '') + ' | ' + sanitize(job.duration || '');
+                                doc.text(companyDate, margin + 2, y + 5);
+                                y += 12;
+                                
+                                if (job.bullets && job.bullets.length > 0) {
+                                    doc.setFontSize(9);
+                                    doc.setTextColor(55, 65, 81);
+                                    job.bullets.forEach(bullet => {
+                                        checkPageBreak(10);
+                                        const bulletText = '- ' + sanitize(bullet);
+                                        const bulletLines = doc.splitTextToSize(bulletText, maxWidth - 5);
+                                        doc.text(bulletLines, margin + 2, y);
+                                        y += bulletLines.length * 4 + 2;
+                                    });
+                                }
+                                y += 6;
+                            });
+                        }
+                        
+                        // Skills
+                        if (r.skills && r.skills.length > 0) {
+                            checkPageBreak(20);
+                            doc.setTextColor(17, 24, 39);
+                            doc.setFontSize(11);
+                            doc.setFont(undefined, 'bold');
+                            doc.text('SKILLS', margin, y);
+                            doc.setDrawColor(229, 231, 235);
+                            doc.line(margin, y + 2, pageWidth - margin, y + 2);
+                            y += 8;
+                            
+                            doc.setFontSize(9);
+                            doc.setFont(undefined, 'normal');
+                            doc.setTextColor(55, 65, 81);
+                            const skillsText = r.skills.map(sanitize).join(' | ');
+                            const skillsLines = doc.splitTextToSize(skillsText, maxWidth);
+                            doc.text(skillsLines, margin, y);
+                            y += skillsLines.length * 4.5 + 8;
+                        }
+                        
+                        // Education
+                        if (r.education && r.education.length > 0) {
+                            checkPageBreak(20);
+                            doc.setTextColor(17, 24, 39);
+                            doc.setFontSize(11);
+                            doc.setFont(undefined, 'bold');
+                            doc.text('EDUCATION', margin, y);
+                            doc.setDrawColor(229, 231, 235);
+                            doc.line(margin, y + 2, pageWidth - margin, y + 2);
+                            y += 8;
+                            
+                            doc.setFontSize(9);
+                            doc.setFont(undefined, 'normal');
+                            doc.setTextColor(55, 65, 81);
+                            r.education.forEach(edu => {
+                                const eduText = sanitize(edu.degree || '') + ' - ' + sanitize(edu.school || '') + ', ' + sanitize(edu.year || '');
+                                doc.text(eduText, margin, y);
+                                y += 5;
+                            });
+                        }
                     }
                     
                     // Save
-                    const filename = sanitize(r.name || 'resume').replace(/[^a-zA-Z0-9]/g, '_') + '.pdf';
+                    const filename = sanitize(r.name || 'resume').replace(/[^a-zA-Z0-9]/g, '_') + '_' + template + '.pdf';
                     doc.save(filename);
                     hideLoading();
                     
