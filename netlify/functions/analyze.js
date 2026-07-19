@@ -11,7 +11,7 @@ const CONFIG = {
     // Go to: Netlify Dashboard > Site Settings > Environment Variables
     // Add: ANTHROPIC_API_KEY = your_api_key_here
     
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     maxTokens: 16000,
     
     // Instance-specific context (customize for FaujiTech vs Akki.club)
