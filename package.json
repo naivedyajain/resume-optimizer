@@ -7,7 +7,11 @@
     "dev": "netlify dev",
     "build": "echo 'No build step required'",
     "deploy": "netlify deploy --prod",
-    "test": "node tests/analyze.test.js"
+    "test": "node tests/verify.js && node tests/analyze.test.js && node tests/ui.smoke.js && node tests/journey.js",
+    "test:server": "node tests/analyze.test.js",
+    "test:ui": "node tests/ui.smoke.js",
+    "test:verify": "node tests/verify.js",
+    "test:journey": "node tests/journey.js"
   },
   "keywords": [
     "resume",
@@ -19,6 +23,7 @@
   "license": "MIT",
   "dependencies": {},
   "devDependencies": {
-    "netlify-cli": "^17.0.0"
+    "netlify-cli": "^17.0.0",
+    "playwright": "^1.40.0"
   }
 }

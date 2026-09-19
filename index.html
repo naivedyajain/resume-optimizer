@@ -702,6 +702,136 @@
         function removeFile(){state.file=null;state.text='';document.getElementById('file-preview').classList.add('hidden');document.getElementById('upload-zone').classList.remove('hidden');document.getElementById('file-input').value=''}
         function formatSize(b){if(b<1024)return b+' B';if(b<1048576)return(b/1024).toFixed(1)+' KB';return(b/1048576).toFixed(1)+' MB'}
 
+        // ============================================
+        // DIAGNOSTICS
+        // Every failure lands here and shows the code, the stage it failed in
+        // and the requestId that matches the Netlify function log, plus a
+        // one-click copy of the whole thing.
+        // ============================================
+        window.__lastError = null;
+
+        function escapeHTML(s) {
+            return String(s).replace(/[&<>"']/g, function(c){
+                return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+            });
+        }
+
+        function diagRow(k, v) {
+            if (!v && v !== 0) return '';
+            return '<tr><td style="padding:.25rem 0;color:#94a3b8;width:90px">' + k +
+                   '</td><td style="padding:.25rem 0;font-family:ui-monospace,monospace;color:#0f172a">' +
+                   escapeHTML(String(v)) + '</td></tr>';
+        }
+
+        function showError(ctx) {
+            ctx = ctx || {};
+            window.__lastError = ctx;
+            console.group('%c[resume-optimizer] ' + (ctx.code || 'ERROR'), 'color:#dc2626;font-weight:bold');
+            console.error('stage    :', ctx.stage || '(unknown)');
+            console.error('message  :', ctx.message);
+            console.error('requestId:', ctx.requestId || '(none)');
+            console.error('http     :', ctx.httpStatus);
+            if (ctx.hint) console.error('hint     :', ctx.hint);
+            if (ctx.detail) console.error('detail   :', ctx.detail);
+            console.error('full     :', ctx);
+            console.groupEnd();
+
+            var existing = document.getElementById('diag-overlay');
+            if (existing) existing.remove();
+
+            var blob = JSON.stringify(ctx, null, 2);
+            var el = document.createElement('div');
+            el.id = 'diag-overlay';
+            el.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.6);display:flex;align-items:center;justify-content:center;z-index:99999;padding:1rem';
+            el.innerHTML =
+              '<div style="background:#fff;max-width:560px;width:100%;border-radius:14px;padding:1.5rem;font-family:system-ui,sans-serif;box-shadow:0 20px 60px rgba(0,0,0,.3);max-height:85vh;overflow:auto">' +
+                '<div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem">' +
+                  '<div style="width:32px;height:32px;border-radius:8px;background:#fee2e2;color:#dc2626;display:flex;align-items:center;justify-content:center;font-weight:700">!</div>' +
+                  '<div style="font-size:1.05rem;font-weight:700;color:#0f172a">Something went wrong</div>' +
+                '</div>' +
+                '<p style="margin:0 0 1rem;color:#334155;line-height:1.5">' + escapeHTML(ctx.message || 'Unknown error') + '</p>' +
+                (ctx.hint ? '<p style="margin:0 0 1rem;padding:.7rem .85rem;background:#fef3c7;border-radius:8px;color:#78350f;font-size:.88rem;line-height:1.45"><strong>What to do:</strong> ' + escapeHTML(ctx.hint) + '</p>' : '') +
+                '<table style="width:100%;font-size:.82rem;color:#475569;border-collapse:collapse;margin-bottom:1rem">' +
+                  diagRow('Code', ctx.code) +
+                  diagRow('Failed at', ctx.stage) +
+                  diagRow('Request ID', ctx.requestId) +
+                  diagRow('HTTP', ctx.httpStatus) +
+                  diagRow('Took', ctx.clientMs ? ctx.clientMs + ' ms' : null) +
+                '</table>' +
+                (ctx.detail ? '<details style="margin-bottom:1rem"><summary style="cursor:pointer;font-size:.82rem;color:#64748b">What the server actually said</summary><pre style="white-space:pre-wrap;word-break:break-word;font-size:.75rem;background:#f8fafc;padding:.7rem;border-radius:8px;color:#334155;margin-top:.5rem">' + escapeHTML(String(ctx.detail).slice(0, 1200)) + '</pre></details>' : '') +
+                '<div style="display:flex;gap:.5rem;justify-content:flex-end">' +
+                  '<button id="diag-copy" style="padding:.6rem 1rem;border:1px solid #cbd5e1;background:#fff;border-radius:8px;cursor:pointer;font-size:.88rem">Copy diagnostics</button>' +
+                  '<button id="diag-close" style="padding:.6rem 1.2rem;border:0;background:#2563eb;color:#fff;border-radius:8px;cursor:pointer;font-size:.88rem;font-weight:600">Close</button>' +
+                '</div>' +
+              '</div>';
+            document.body.appendChild(el);
+            el.querySelector('#diag-close').onclick = function(){ el.remove(); };
+            el.querySelector('#diag-copy').onclick = function(e){
+                if (navigator.clipboard) {
+                    navigator.clipboard.writeText(blob).then(function(){ e.target.textContent = 'Copied'; })
+                                                      .catch(function(){ e.target.textContent = 'Press Ctrl+C'; });
+                } else { e.target.textContent = 'Press Ctrl+C'; }
+            };
+        }
+
+        // Single path for every call to the function. Returns the parsed
+        // envelope, or throws a fully-populated diagnostic object.
+        async function apiCall(payload, label) {
+            var t0 = Date.now();
+            var res, bodyText, parsed = null;
+            try {
+                res = await fetch(API, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+            } catch (e) {
+                throw { code: 'NETWORK', stage: label, message: 'Could not reach the server: ' + e.message,
+                        hint: 'Check your connection, then retry.', clientMs: Date.now() - t0 };
+            }
+
+            try { bodyText = await res.text(); } catch (e) { bodyText = ''; }
+            try { parsed = JSON.parse(bodyText); } catch (e) { parsed = null; }
+
+            if (!res.ok) {
+                if (parsed) {
+                    throw { code: parsed.error || 'SERVER_ERROR', stage: parsed.stage || label,
+                            message: parsed.message || 'The server returned an error.', hint: parsed.hint,
+                            detail: parsed.detail, requestId: parsed.requestId,
+                            httpStatus: res.status, clientMs: Date.now() - t0 };
+                }
+                // Non-JSON error body = the platform killed the function
+                // before our code could report anything.
+                throw {
+                    code: (res.status === 502 || res.status === 504) ? 'FUNCTION_DIED' : 'SERVER_ERROR',
+                    stage: label,
+                    message: (res.status === 502 || res.status === 504)
+                        ? 'The server function stopped before it could reply — almost always a timeout or a crash.'
+                        : 'The server returned HTTP ' + res.status + ' with a non-JSON body.',
+                    hint: 'Open Netlify > Logs > Functions > analyze and read the newest entry. Search for "[resume-opt]".',
+                    detail: String(bodyText).slice(0, 600),
+                    httpStatus: res.status, clientMs: Date.now() - t0
+                };
+            }
+
+            if (!parsed || !parsed.success) {
+                throw { code: (parsed && parsed.error) || 'BAD_RESPONSE', stage: (parsed && parsed.stage) || label,
+                        message: (parsed && parsed.message) || 'Server replied 200 but the body was not usable.',
+                        hint: parsed && parsed.hint, detail: String(bodyText).slice(0, 600),
+                        requestId: parsed && parsed.requestId, httpStatus: res.status, clientMs: Date.now() - t0 };
+            }
+
+            console.log('[resume-optimizer] ' + label + ' ok in ' + (Date.now() - t0) + 'ms (server ' + parsed.elapsedMs + 'ms, req ' + parsed.requestId + ')');
+            if (parsed.warnings && parsed.warnings.length) console.warn('[resume-optimizer] warnings:', parsed.warnings);
+            return parsed;
+        }
+
+        // A resume object is only usable if it actually has experience in it.
+        function isUsableResume(r) {
+            return !!r && typeof r === 'object' && Array.isArray(r.experience) && r.experience.length > 0
+                && r.experience.every(function(j){ return Array.isArray(j.bullets) && j.bullets.length > 0; });
+        }
+
         async function analyzeResume() {
             if (!state.text.trim()) {
                 showError({ code:'NO_FILE', stage:'client', message:'Upload your resume first.' });
