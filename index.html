@@ -715,24 +715,40 @@
             show('score-screen');
         }
 
+        // A resume object is only usable if it actually has experience in it.
+        // Without this check, {rawResponse:"..."} or {} renders as a blank page.
+        function isUsableResume(r){
+            return !!r && typeof r==='object' && Array.isArray(r.experience) && r.experience.length>0;
+        }
+
         async function refineResume() {
+            if(!state.text || !state.text.trim()){
+                alert('Please upload your resume first — no text was read from the file.');
+                show('upload-screen');
+                return;
+            }
             loading('refine');
+            let failure = null;
             try {
                 const res=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'refine',resumeText:state.text})});
-                if(res.ok){
-                    const r=await res.json();
-                    console.log('API Response:', r);
-                    state.resume = (r.success && r.data) ? r.data : mockResume();
+                const r=await res.json().catch(()=>null);
+                console.log('API Response:', r);
+                if(res.ok && r && r.success && isUsableResume(r.data)){
+                    state.resume = r.data;
                 } else {
-                    console.log('API Error, using mock');
-                    state.resume = mockResume();
+                    failure = (r && (r.message || r.error)) || ('Request failed ('+res.status+')');
+                    console.error('Refine failed:', failure, r);
                 }
             } catch(e){
-                console.log('Fetch error, using mock:', e);
-                state.resume = mockResume();
+                failure = e.message;
+                console.error('Fetch error:', e);
             }
-            console.log('State resume:', state.resume);
             hideLoading();
+            if(failure){
+                // Fail loudly instead of rendering an empty resume.
+                alert('Could not refine your resume: '+failure+'\n\nYour original resume is unchanged. Please try again.');
+                return;
+            }
             renderResume();
             initChat();
             show('refine-screen');
@@ -744,8 +760,19 @@
             loading('jd');
             try {
                 const res=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'jd_optimize',resumeText:state.text,jdText:jd})});
-                if(res.ok){const r=await res.json();if(r.success&&r.data)state.resume=r.data}
-            } catch(e){}
+                const r=await res.json().catch(()=>null);
+                if(res.ok && r && r.success && isUsableResume(r.data)){
+                    state.resume=r.data;
+                } else {
+                    hideLoading();
+                    alert('Could not optimize for this JD: '+((r&&(r.message||r.error))||res.status)+'\n\nYour resume is unchanged.');
+                    return;
+                }
+            } catch(e){
+                hideLoading();
+                alert('Could not optimize for this JD: '+e.message);
+                return;
+            }
             hideLoading();
             renderResume();
             initChat();
