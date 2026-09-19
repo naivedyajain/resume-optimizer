@@ -90,6 +90,28 @@ const ATS = { overall: 72, sections: [{ name: 'Contact Information', score: 80 }
   ok('panel shows requestId', panel.includes('abc123'));
   ok('resume left untouched', (await page.evaluate(() => state.resume.name)) === 'Naivedya Jain');
 
+  console.log('\n[Netlify-shaped JSON 502 — the one that read as SERVER_ERROR]');
+  await page.evaluate(() => { const o=document.getElementById('diag-overlay'); if(o) o.remove(); });
+  responder = route => route.fulfill({ status: 502, contentType: 'application/json',
+    body: JSON.stringify({ errorMessage: '2026-09-19T06:11:02.123Z Task timed out after 30.00 seconds', errorType: 'Sandbox.Timedout' }) });
+  await page.evaluate(() => refineResume());
+  await page.waitForTimeout(400);
+  let pt = await page.locator('#diag-overlay').innerText();
+  ok('labels it PLATFORM_TIMEOUT, not SERVER_ERROR', pt.includes('PLATFORM_TIMEOUT'), pt.slice(0,160));
+  ok('surfaces the platform message', pt.includes('Task timed out'), pt.slice(0,160));
+
+  console.log('\n[timings surface in the panel]');
+  await page.evaluate(() => { const o=document.getElementById('diag-overlay'); if(o) o.remove(); });
+  responder = route => route.fulfill({ status: 504, contentType: 'application/json',
+    body: JSON.stringify({ success:false, error:'TIMEOUT', stage:'job:3', message:'Budget exhausted.', requestId:'tmg001',
+      timings:[{stage:'outline',ms:4200,outTok:120},{stage:'header',ms:9100,outTok:310},{stage:'job:0',ms:15400,outTok:260}] }) });
+  await page.evaluate(() => refineResume());
+  await page.waitForTimeout(400);
+  let tt = await page.locator('#diag-overlay').innerText();
+  ok('timing breakdown shown', tt.includes('Where the time went'), tt.slice(0,160));
+  ok('slowest stage listed first', tt.indexOf('15400') < tt.indexOf('4200'));
+  ok('stage names present', tt.includes('outline') && tt.includes('header'));
+
   console.log('\n[platform 502 with non-JSON body]');
   await page.evaluate(() => document.getElementById('diag-overlay').remove());
   responder = route => route.fulfill({ status: 502, contentType: 'text/html', body: '<html>Bad gateway</html>' });

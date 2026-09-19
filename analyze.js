@@ -108,11 +108,32 @@ const VERSION = '2.0.0';
 // Netlify's synchronous function limit is 60s and is not configurable, so the
 // whole request has to finish inside it. Every stage is timed against one
 // shared budget and every failure names the stage it happened in.
-const BUDGET_MS = 45000;
+const BUDGET_MS = 22000;   // observed platform kill ~31s; stay well under it
 const CHUNK_MAX_TOKENS = 2000;
 const MAX_JOBS = 15;
 const MAX_RESUME_CHARS = 60000;
 const MAX_ATTEMPTS = 3;
+const MAX_CONCURRENT = 4;
+
+// Chunk calls do not need the full consultant system prompt; sending it on
+// every one of ~7 calls is pure added input latency.
+const CHUNK_SYSTEM = 'You are a resume writing assistant. You reply with valid JSON only, never prose, never markdown fences.';
+
+// Run tasks with bounded concurrency, preserving order.
+async function mapLimit(items, limit, fn) {
+    const out = new Array(items.length);
+    let next = 0;
+    async function worker() {
+        while (true) {
+            const i = next++;
+            if (i >= items.length) return;
+            try { out[i] = { status: 'fulfilled', value: await fn(items[i], i) }; }
+            catch (e) { out[i] = { status: 'rejected', reason: e }; }
+        }
+    }
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+    return out;
+}
 
 // ============================================
 // LOGGING
@@ -146,6 +167,7 @@ function fail(headers, status, code, stage, message, opts = {}) {
         version: VERSION
     };
     if (opts.detail) payload.detail = String(opts.detail).slice(0, 1500);
+    if (opts.timings && opts.timings.length) payload.timings = opts.timings;
     log({ lvl: 'error', code, stage, status, msg: message, ...opts.logFields, requestId: opts.requestId, elapsedMs: opts.elapsedMs });
     return { statusCode: status, headers, body: JSON.stringify(payload) };
 }
@@ -185,6 +207,7 @@ exports.handler = async (event, context) => {
     const requestId = newRequestId();
     const started = Date.now();
     const ms = () => Date.now() - started;
+    const ctx = { requestId: requestId, started: started, warnings: [], timings: [] };
 
     // Nothing below this line is allowed to throw past this catch. A function
     // that crashes returns a platform 502 with a non-JSON body, which is
@@ -244,7 +267,6 @@ exports.handler = async (event, context) => {
             return fail(headers, 400, 'BAD_CHAT_STATE', 'validate-input', 'Chat needs both currentResume and a non-empty chatHistory.', { requestId, elapsedMs: ms() });
         }
 
-        const ctx = { requestId, started, warnings: [] };
         let result;
 
         if (action === 'ats_score') {
@@ -258,7 +280,7 @@ exports.handler = async (event, context) => {
         const shapeError = validateShape(action, result);
         if (shapeError) {
             return fail(headers, 502, 'INCOMPLETE_RESUME', 'validate-output', shapeError, {
-                requestId, elapsedMs: ms(), detail: JSON.stringify(result).slice(0, 1000)
+                requestId, elapsedMs: ms(), detail: JSON.stringify(result).slice(0, 1000), timings: ctx.timings
             });
         }
 
@@ -271,6 +293,7 @@ exports.handler = async (event, context) => {
                 success: true,
                 data: result,
                 warnings: ctx.warnings,
+                timings: ctx.timings,
                 requestId,
                 elapsedMs: ms(),
                 version: VERSION
@@ -281,16 +304,22 @@ exports.handler = async (event, context) => {
         const known = error && error.code && HINTS[error.code];
         if (known) {
             return fail(headers, error.status || 502, error.code, error.stage || 'unknown', error.message, {
-                requestId, elapsedMs: ms(), detail: error.detail
+                requestId, elapsedMs: ms(), detail: error.detail, timings: ctx.timings
             });
         }
         log({ lvl: 'error', msg: 'unhandled', requestId, elapsedMs: ms(), err: error && error.message, stack: error && error.stack ? String(error.stack).slice(0, 1200) : undefined });
         return fail(headers, 500, 'INTERNAL', (error && error.stage) || 'unknown',
-            (error && error.message) || 'Unknown error', { requestId, elapsedMs: ms() });
+            (error && error.message) || 'Unknown error', { requestId, elapsedMs: ms(), timings: ctx.timings });
     }
 };
 
 // Errors that already know their own code/stage travel with them.
+function recordTiming(ctx, stage, ms, extra) {
+    if (ctx && Array.isArray(ctx.timings)) {
+        ctx.timings.push(Object.assign({ stage: stage, ms: ms }, extra || {}));
+    }
+}
+
 function appError(code, stage, message, extra = {}) {
     const e = new Error(message);
     e.code = code;
@@ -339,7 +368,7 @@ async function runHealthCheck(apiKey, headers, requestId, started) {
 // PARALLEL RESUME BUILD
 // ============================================
 async function buildResumeInParallel(apiKey, resumeText, jdText, ctx) {
-    const outline = await callClaude(apiKey, buildOutlinePrompt(resumeText), 1500, { ...ctx, stage: 'outline' });
+    const outline = await callClaude(apiKey, buildOutlinePrompt(resumeText), 1500, { ...ctx, stage: 'outline', lightSystem: true });
 
     if (!outline || !Array.isArray(outline.jobs) || outline.jobs.length === 0) {
         throw appError('NO_JOBS_FOUND', 'outline', 'The outline pass found no work experience in this document.',
@@ -361,11 +390,15 @@ async function buildResumeInParallel(apiKey, resumeText, jdText, ctx) {
     // allSettled so one bad chunk cannot reject the whole batch before the
     // others finish — we want to report which one failed, not just that
     // something did.
-    const settled = await Promise.allSettled([
-        callClaude(apiKey, buildHeaderPrompt(resumeText, jdText), CHUNK_MAX_TOKENS, { ...ctx, stage: 'header' }),
-        ...jobs.map((j, i) => callClaude(apiKey, buildJobPrompt(resumeText, j, jdText), CHUNK_MAX_TOKENS,
-            { ...ctx, stage: `job:${i}:${(j.company || j.title || '').slice(0, 30)}` }))
-    ]);
+    const tasks = [{ kind: 'header' }].concat(jobs.map((j, i) => ({ kind: 'job', job: j, i: i })));
+    const settled = await mapLimit(tasks, MAX_CONCURRENT, function (task) {
+        if (task.kind === 'header') {
+            return callClaude(apiKey, buildHeaderPrompt(resumeText, jdText), CHUNK_MAX_TOKENS,
+                { ...ctx, stage: 'header', lightSystem: true });
+        }
+        return callClaude(apiKey, buildJobPrompt(resumeText, task.job, jdText), CHUNK_MAX_TOKENS,
+            { ...ctx, stage: 'job:' + task.i + ':' + (task.job.company || task.job.title || '').slice(0, 30), lightSystem: true });
+    });
 
     const headerResult = settled[0];
     if (headerResult.status === 'rejected') {
@@ -436,7 +469,7 @@ async function callClaude(apiKey, prompt, maxTokens, ctx) {
                 body: JSON.stringify({
                     model: CONFIG.model,
                     max_tokens: maxTokens,
-                    system: CONFIG.systemPrompt,
+                    system: ctx.lightSystem ? CHUNK_SYSTEM : CONFIG.systemPrompt,
                     messages: [{ role: 'user', content: prompt }]
                 }),
                 signal: controller.signal
@@ -445,6 +478,7 @@ async function callClaude(apiKey, prompt, maxTokens, ctx) {
             if (!response.ok) {
                 const errorText = await response.text();
                 const s = response.status;
+                recordTiming(ctx, stage, Date.now() - t0, { attempt, status: s });
                 log({ lvl: 'warn', msg: 'upstream-not-ok', requestId: ctx.requestId, stage, attempt, status: s, ms: Date.now() - t0, detail: errorText.slice(0, 300) });
 
                 // Permanent failures: stop immediately, retrying cannot help.
@@ -466,6 +500,11 @@ async function callClaude(apiKey, prompt, maxTokens, ctx) {
                 const parsed = extractJSON(raw);
 
                 if (parsed) {
+                    recordTiming(ctx, stage, Date.now() - t0, {
+                        attempt,
+                        inTok: data.usage && data.usage.input_tokens,
+                        outTok: data.usage && data.usage.output_tokens
+                    });
                     log({
                         lvl: 'info', msg: 'chunk-ok', requestId: ctx.requestId, stage, attempt,
                         ms: Date.now() - t0,
@@ -476,6 +515,7 @@ async function callClaude(apiKey, prompt, maxTokens, ctx) {
                 }
 
                 // Non-JSON reply: worth one more roll, but log what it said.
+                recordTiming(ctx, stage, Date.now() - t0, { attempt, note: 'unparseable' });
                 log({ lvl: 'warn', msg: 'unparseable', requestId: ctx.requestId, stage, attempt, ms: Date.now() - t0, said: raw.slice(0, 300) });
                 lastError = appError('UNPARSEABLE', stage, 'Model replied with something other than JSON.', { status: 502, detail: raw.slice(0, 800) });
             }

@@ -723,6 +723,20 @@
                    escapeHTML(String(v)) + '</td></tr>';
         }
 
+        // Per-stage timings, slowest first — answers "where did the time go"
+        // without anyone having to open the server log.
+        function timingTable(timings) {
+            if (!timings || !timings.length) return '';
+            var rows = timings.slice().sort(function(a,b){ return (b.ms||0) - (a.ms||0); }).slice(0, 10)
+                .map(function(t){
+                    return '<tr><td style="padding:.2rem 0;font-family:ui-monospace,monospace;color:#334155">' + escapeHTML(String(t.stage||'?')) +
+                           '</td><td style="padding:.2rem 0;text-align:right;color:#0f172a">' + (t.ms||0) + ' ms</td>' +
+                           '<td style="padding:.2rem .4rem;text-align:right;color:#94a3b8">' + (t.status ? 'HTTP ' + t.status : (t.outTok ? t.outTok + ' tok' : '')) + '</td></tr>';
+                }).join('');
+            return '<details open style="margin-bottom:1rem"><summary style="cursor:pointer;font-size:.82rem;color:#64748b">Where the time went</summary>' +
+                   '<table style="width:100%;font-size:.78rem;border-collapse:collapse;margin-top:.5rem">' + rows + '</table></details>';
+        }
+
         function showError(ctx) {
             ctx = ctx || {};
             window.__lastError = ctx;
@@ -758,7 +772,8 @@
                   diagRow('HTTP', ctx.httpStatus) +
                   diagRow('Took', ctx.clientMs ? ctx.clientMs + ' ms' : null) +
                 '</table>' +
-                (ctx.detail ? '<details style="margin-bottom:1rem"><summary style="cursor:pointer;font-size:.82rem;color:#64748b">What the server actually said</summary><pre style="white-space:pre-wrap;word-break:break-word;font-size:.75rem;background:#f8fafc;padding:.7rem;border-radius:8px;color:#334155;margin-top:.5rem">' + escapeHTML(String(ctx.detail).slice(0, 1200)) + '</pre></details>' : '') +
+                timingTable(ctx.timings) +
+                (ctx.detail ? '<details open style="margin-bottom:1rem"><summary style="cursor:pointer;font-size:.82rem;color:#64748b">What the server actually said</summary><pre style="white-space:pre-wrap;word-break:break-word;font-size:.75rem;background:#f8fafc;padding:.7rem;border-radius:8px;color:#334155;margin-top:.5rem">' + escapeHTML(String(ctx.detail).slice(0, 1200)) + '</pre></details>' : '') +
                 '<div style="display:flex;gap:.5rem;justify-content:flex-end">' +
                   '<button id="diag-copy" style="padding:.6rem 1rem;border:1px solid #cbd5e1;background:#fff;border-radius:8px;cursor:pointer;font-size:.88rem">Copy diagnostics</button>' +
                   '<button id="diag-close" style="padding:.6rem 1.2rem;border:0;background:#2563eb;color:#fff;border-radius:8px;cursor:pointer;font-size:.88rem;font-weight:600">Close</button>' +
@@ -794,22 +809,36 @@
             try { parsed = JSON.parse(bodyText); } catch (e) { parsed = null; }
 
             if (!res.ok) {
-                if (parsed) {
-                    throw { code: parsed.error || 'SERVER_ERROR', stage: parsed.stage || label,
+                // Our own envelope always carries an "error" field. Anything
+                // else — including Netlify's own {"errorMessage":"Task timed
+                // out after 30.00 seconds"} — means the platform killed the
+                // function before our code could report anything.
+                var ours = parsed && typeof parsed.error === 'string';
+                if (ours) {
+                    throw { code: parsed.error, stage: parsed.stage || label,
                             message: parsed.message || 'The server returned an error.', hint: parsed.hint,
-                            detail: parsed.detail, requestId: parsed.requestId,
+                            detail: parsed.detail, requestId: parsed.requestId, timings: parsed.timings,
                             httpStatus: res.status, clientMs: Date.now() - t0 };
                 }
-                // Non-JSON error body = the platform killed the function
-                // before our code could report anything.
+
+                var platformMsg = '';
+                if (parsed) {
+                    platformMsg = parsed.errorMessage || parsed.message || JSON.stringify(parsed).slice(0, 300);
+                } else {
+                    platformMsg = String(bodyText).slice(0, 300);
+                }
+                var looksLikeTimeout = /timed?\s*out|timeout/i.test(platformMsg) || Date.now() - t0 > 20000;
+
                 throw {
-                    code: (res.status === 502 || res.status === 504) ? 'FUNCTION_DIED' : 'SERVER_ERROR',
+                    code: looksLikeTimeout ? 'PLATFORM_TIMEOUT' : 'FUNCTION_DIED',
                     stage: label,
-                    message: (res.status === 502 || res.status === 504)
-                        ? 'The server function stopped before it could reply — almost always a timeout or a crash.'
-                        : 'The server returned HTTP ' + res.status + ' with a non-JSON body.',
-                    hint: 'Open Netlify > Logs > Functions > analyze and read the newest entry. Search for "[resume-opt]".',
-                    detail: String(bodyText).slice(0, 600),
+                    message: looksLikeTimeout
+                        ? 'The server function was killed after ' + Math.round((Date.now() - t0) / 1000) + 's — it ran past the hosting time limit.'
+                        : 'The server function stopped before it could reply (HTTP ' + res.status + ').',
+                    hint: looksLikeTimeout
+                        ? 'The rewrite is taking too long. Open Netlify > Logs > Functions > analyze, search "[resume-opt]" and check which stage is slow.'
+                        : 'Open Netlify > Logs > Functions > analyze and read the newest entry. Search for "[resume-opt]".',
+                    detail: platformMsg,
                     httpStatus: res.status, clientMs: Date.now() - t0
                 };
             }

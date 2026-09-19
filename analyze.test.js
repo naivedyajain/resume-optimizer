@@ -96,6 +96,22 @@ const reset = m => { mode=m; calls=0; attemptsByStage={}; };
   ok('error has requestId', !!b.requestId);
   ok('error has version', b.version==='2.0.0');
 
+  console.log('\n[timings + concurrency]');
+  reset('happy');
+  let started = 0, peak = 0;
+  const realFetch = global.fetch;
+  global.fetch = async (u, o) => { started++; peak = Math.max(peak, started); try { return await realFetch(u, o); } finally { started--; } };
+  r = await call({ action:'refine', resumeText:'x'.repeat(200) });
+  b = JSON.parse(r.body);
+  global.fetch = realFetch;
+  ok('success carries timings', Array.isArray(b.timings) && b.timings.length >= 3, JSON.stringify(b.timings||[]).slice(0,120));
+  ok('timings name their stage', (b.timings||[]).every(t => typeof t.stage === 'string'));
+  ok('concurrency stays within cap', peak <= 4, 'peak=' + peak);
+
+  reset('prose');
+  b = JSON.parse((await call({ action:'refine', resumeText:'x'.repeat(200) })).body);
+  ok('failure also carries timings', Array.isArray(b.timings) && b.timings.length > 0, JSON.stringify(b.timings||[]).slice(0,120));
+
   console.log(`\n${pass} passed, ${failn} failed`);
   process.exit(failn ? 1 : 0);
 })();

@@ -58,6 +58,19 @@ ok('every referenced helper defined', fnMissing.length === 0, fnMissing.join(', 
 const mod = require(path.join(ROOT, 'netlify/functions/analyze.js'));
 ok('exports.handler is a function', typeof mod.handler === 'function');
 
+console.log('\n=== 4b. wiring actually present (catches no-op edits) ===');
+const wiring = [
+  ['recordTiming is called, not just defined', /recordTiming\(ctx,/.test(fnSrc)],
+  ['bounded concurrency in use', /mapLimit\(/.test(fnSrc) && /MAX_CONCURRENT/.test(fnSrc)],
+  ['budget is under the platform kill point', (fnSrc.match(/BUDGET_MS\s*=\s*(\d+)/)||[])[1] < 30000],
+  ['chunk calls use the light system prompt', /lightSystem/.test(fnSrc) && /CHUNK_SYSTEM/.test(fnSrc)],
+  ['timings returned on success', /timings:\s*ctx\.timings/.test(fnSrc)],
+  ['client distinguishes our envelope', /typeof parsed\.error === 'string'/.test(inline)],
+  ['client has PLATFORM_TIMEOUT path', /PLATFORM_TIMEOUT/.test(inline)],
+  ['client renders the timing table', /timingTable\(/.test(inline) && /function timingTable/.test(inline)],
+];
+wiring.forEach(([n,c]) => ok(n, !!c));
+
 console.log('\n=== 5. other functions in the repo still parse ===');
 for (const f of fs.readdirSync(path.join(ROOT, 'netlify/functions'))) {
   if (!f.endsWith('.js')) continue;
