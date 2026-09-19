@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "netlify dev",
     "build": "echo 'No build step required'",
-    "deploy": "netlify deploy --prod"
+    "deploy": "netlify deploy --prod",
+    "test": "node tests/analyze.test.js"
   },
   "keywords": [
     "resume",
