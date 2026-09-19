@@ -103,11 +103,18 @@ For Akki.club instance, add:
 `
 };
 
+// Netlify's synchronous function limit is 60s and is not configurable.
+// A single "rewrite the whole resume" call emits 2000+ tokens and regularly
+// runs past that, which the platform turns into a 502 with a non-JSON body.
+// So refine/jd_optimize are split into small parallel calls and reassembled
+// here: wall time becomes the slowest single chunk, not the sum.
+const BUDGET_MS = 45000;          // stay clear of the 60s ceiling
+const CHUNK_MAX_TOKENS = 2000;
+
 // ============================================
 // HANDLER
 // ============================================
 exports.handler = async (event, context) => {
-    // CORS headers
     const headers = {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': 'Content-Type',
@@ -115,26 +122,20 @@ exports.handler = async (event, context) => {
         'Content-Type': 'application/json'
     };
 
-    // Handle preflight
     if (event.httpMethod === 'OPTIONS') {
         return { statusCode: 200, headers, body: '' };
     }
 
-    // Only allow POST
     if (event.httpMethod !== 'POST') {
-        return {
-            statusCode: 405,
-            headers,
-            body: JSON.stringify({ error: 'Method not allowed' })
-        };
+        return { statusCode: 405, headers, body: JSON.stringify({ error: 'Method not allowed' }) };
     }
+
+    const started = Date.now();
 
     try {
         const { action, resumeText, jdText, chatHistory, currentResume } = JSON.parse(event.body);
 
-        // Get API key from environment
         const apiKey = process.env.ANTHROPIC_API_KEY;
-        
         if (!apiKey) {
             console.error('ANTHROPIC_API_KEY not set in environment variables');
             return {
@@ -144,9 +145,8 @@ exports.handler = async (event, context) => {
             };
         }
 
-        // An empty or near-empty resume makes the model reply in prose instead
-        // of JSON, which previously rendered as a blank resume with no error.
-        // Scanned/image PDFs extract to nothing and land here.
+        // Scanned/image PDFs extract to nothing; without this the model replies
+        // in prose instead of JSON and the UI renders an empty resume.
         if (action !== 'chat' && (!resumeText || resumeText.trim().length < 50)) {
             return {
                 statusCode: 400,
@@ -158,21 +158,23 @@ exports.handler = async (event, context) => {
             };
         }
 
-        let prompt = '';
-
-        // Build prompt based on action
+        let result;
         switch (action) {
             case 'ats_score':
-                prompt = buildATSScorePrompt(resumeText);
+                // Small output, finishes well inside the limit: single call.
+                result = await callClaude(apiKey, buildATSScorePrompt(resumeText), 4000, started);
                 break;
             case 'refine':
-                prompt = buildRefinePrompt(resumeText);
+                result = await buildResumeInParallel(apiKey, resumeText, null, started);
                 break;
             case 'jd_optimize':
-                prompt = buildJDOptimizePrompt(resumeText, jdText);
+                if (!jdText || !jdText.trim()) {
+                    return { statusCode: 400, headers, body: JSON.stringify({ error: 'NO_JD', message: 'Job description is empty.' }) };
+                }
+                result = await buildResumeInParallel(apiKey, resumeText, jdText, started);
                 break;
             case 'chat':
-                prompt = buildChatPrompt(currentResume, chatHistory);
+                result = await callClaude(apiKey, buildChatPrompt(currentResume, chatHistory), 8000, started);
                 break;
             default:
                 return {
@@ -182,8 +184,99 @@ exports.handler = async (event, context) => {
                 };
         }
 
-        // Call Claude API
-        const response = await fetch(ANTHROPIC_API_URL, {
+        const validationError = validateShape(action, result);
+        if (validationError) {
+            console.error('Shape validation failed:', validationError, JSON.stringify(result).slice(0, 1000));
+            return {
+                statusCode: 502,
+                headers,
+                body: JSON.stringify({ error: 'INCOMPLETE_RESUME', message: validationError })
+            };
+        }
+
+        console.log(`action=${action} ok in ${Date.now() - started}ms`);
+        return {
+            statusCode: 200,
+            headers,
+            body: JSON.stringify({ success: true, data: result })
+        };
+
+    } catch (error) {
+        const ms = Date.now() - started;
+        console.error(`Function error after ${ms}ms:`, error.message);
+
+        // Report our own budget overrun as JSON rather than letting the
+        // platform kill us and return an unparseable 502.
+        const isTimeout = error.name === 'AbortError' || /budget|timed out/i.test(error.message);
+        return {
+            statusCode: isTimeout ? 504 : 500,
+            headers,
+            body: JSON.stringify({
+                error: isTimeout ? 'TIMEOUT' : 'INTERNAL',
+                message: isTimeout
+                    ? `The rewrite took longer than ${Math.round(BUDGET_MS / 1000)}s. Try again, or shorten the resume.`
+                    : error.message
+            })
+        };
+    }
+};
+
+// ============================================
+// PARALLEL RESUME BUILD
+// ============================================
+
+// Pass 1 lists the job headers only (a few hundred tokens, a few seconds).
+// Pass 2 fires one small call per job plus one for the header block, all at
+// once. Each chunk is short enough that truncation is no longer possible.
+async function buildResumeInParallel(apiKey, resumeText, jdText, started) {
+    const outline = await callClaude(apiKey, buildOutlinePrompt(resumeText), 1500, started);
+
+    if (!outline || !Array.isArray(outline.jobs) || outline.jobs.length === 0) {
+        throw new Error('Could not identify any work experience in the resume.');
+    }
+
+    // Guard against a pathological outline blowing up the fan-out.
+    const jobs = outline.jobs.slice(0, 12);
+
+    const [header, ...jobResults] = await Promise.all([
+        callClaude(apiKey, buildHeaderPrompt(resumeText, jdText), CHUNK_MAX_TOKENS, started),
+        ...jobs.map(j => callClaude(apiKey, buildJobPrompt(resumeText, j, jdText), CHUNK_MAX_TOKENS, started))
+    ]);
+
+    const experience = jobs.map((j, i) => ({
+        title: j.title || '',
+        company: j.company || '',
+        duration: j.duration || '',
+        bullets: (jobResults[i] && Array.isArray(jobResults[i].bullets)) ? jobResults[i].bullets : []
+    })).filter(j => j.bullets.length > 0);
+
+    const resume = {
+        name: header.name || '',
+        title: header.title || '',
+        contact: header.contact || {},
+        summary: header.summary || '',
+        experience,
+        skills: Array.isArray(header.skills) ? header.skills : [],
+        education: Array.isArray(header.education) ? header.education : []
+    };
+
+    if (jdText && header.jdMatch) resume.jdMatch = header.jdMatch;
+    return resume;
+}
+
+// ============================================
+// CLAUDE CALL
+// ============================================
+async function callClaude(apiKey, prompt, maxTokens, started) {
+    const remaining = BUDGET_MS - (Date.now() - started);
+    if (remaining <= 1000) throw new Error('Time budget exhausted before request');
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), remaining);
+
+    let response;
+    try {
+        response = await fetch(ANTHROPIC_API_URL, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -192,106 +285,48 @@ exports.handler = async (event, context) => {
             },
             body: JSON.stringify({
                 model: CONFIG.model,
-                max_tokens: CONFIG.maxTokens,
+                max_tokens: maxTokens,
                 system: CONFIG.systemPrompt,
-                messages: [
-                    { role: 'user', content: prompt }
-                ]
-            })
+                messages: [{ role: 'user', content: prompt }]
+            }),
+            signal: controller.signal
         });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Claude API error:', errorText);
-            return {
-                statusCode: response.status,
-                headers,
-                body: JSON.stringify({ error: 'AI service error', details: errorText })
-            };
-        }
-
-        const data = await response.json();
-
-        // The model can be cut off mid-JSON. That produces unparseable output,
-        // which used to fall through as a "successful" empty resume.
-        if (data.stop_reason === 'max_tokens') {
-            console.error('Response truncated at max_tokens');
-            return {
-                statusCode: 502,
-                headers,
-                body: JSON.stringify({
-                    error: 'TRUNCATED',
-                    message: 'The resume was too long to rewrite in one pass. Try a shorter resume or raise maxTokens.'
-                })
-            };
-        }
-
-        const textBlock = (data.content || []).find(b => b.type === 'text');
-        const aiResponse = textBlock ? textBlock.text : '';
-
-        const parsedResponse = extractJSON(aiResponse);
-
-        if (!parsedResponse) {
-            console.error('Could not parse JSON. Raw model output:', aiResponse.slice(0, 2000));
-            return {
-                statusCode: 502,
-                headers,
-                body: JSON.stringify({
-                    error: 'BAD_AI_RESPONSE',
-                    message: 'The AI did not return usable resume data.',
-                    raw: aiResponse.slice(0, 2000)
-                })
-            };
-        }
-
-        // Shape check: a resume-producing action MUST come back with experience.
-        // Without this, an empty object renders as a blank resume.
-        const validationError = validateShape(action, parsedResponse);
-        if (validationError) {
-            console.error('Shape validation failed:', validationError, JSON.stringify(parsedResponse).slice(0, 1000));
-            return {
-                statusCode: 502,
-                headers,
-                body: JSON.stringify({
-                    error: 'INCOMPLETE_RESUME',
-                    message: validationError,
-                    raw: aiResponse.slice(0, 2000)
-                })
-            };
-        }
-
-        return {
-            statusCode: 200,
-            headers,
-            body: JSON.stringify({
-                success: true,
-                data: parsedResponse,
-                usage: data.usage
-            })
-        };
-
-    } catch (error) {
-        console.error('Function error:', error);
-        return {
-            statusCode: 500,
-            headers,
-            body: JSON.stringify({ error: 'Internal server error', message: error.message })
-        };
+    } finally {
+        clearTimeout(timer);
     }
-};
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Claude API error:', response.status, errorText.slice(0, 500));
+        throw new Error(`AI service error (${response.status})`);
+    }
+
+    const data = await response.json();
+
+    if (data.stop_reason === 'max_tokens') {
+        throw new Error('Response was cut off before completing.');
+    }
+
+    const textBlock = (data.content || []).find(b => b.type === 'text');
+    const parsed = extractJSON(textBlock ? textBlock.text : '');
+
+    if (!parsed) {
+        console.error('Unparseable model output:', (textBlock ? textBlock.text : '').slice(0, 1000));
+        throw new Error('The AI did not return usable JSON.');
+    }
+    return parsed;
+}
 
 // ============================================
 // RESPONSE PARSING + VALIDATION
 // ============================================
 
-// The old code used /\{[\s\S]*\}/ — first brace to LAST brace in the whole
-// reply. Any trailing prose containing a "}" broke it, and truncated output
-// always broke it. This scans for a balanced object instead, ignoring braces
-// that appear inside strings.
+// The original /\{[\s\S]*\}/ ran from the first brace to the LAST brace in the
+// whole reply, so any trailing prose containing a brace broke the parse. This
+// scans for one balanced object instead, ignoring braces inside strings.
 function extractJSON(text) {
     if (!text) return null;
 
-    // Strip markdown code fences if present
     let s = text.trim();
     const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (fence) s = fence[1].trim();
@@ -310,16 +345,11 @@ function extractJSON(text) {
         else if (c === '}') {
             depth--;
             if (depth === 0) {
-                try {
-                    return JSON.parse(s.slice(start, i + 1));
-                } catch (e) {
-                    console.error('Balanced object found but JSON.parse failed:', e.message);
-                    return null;
-                }
+                try { return JSON.parse(s.slice(start, i + 1)); }
+                catch (e) { console.error('Balanced object failed to parse:', e.message); return null; }
             }
         }
     }
-    // Never closed => truncated
     return null;
 }
 
@@ -334,15 +364,13 @@ function validateShape(action, obj) {
 
     if (action === 'chat') {
         const upd = obj.updatedResume || obj.updated_resume || obj.resume;
-        // A chat turn may legitimately be advice-only with no resume edit.
-        if (!upd) return null;
+        if (!upd) return null;   // advice-only replies are legitimate
         if (!Array.isArray(upd.experience) || upd.experience.length === 0) {
             return 'Updated resume came back with no work experience.';
         }
         return null;
     }
 
-    // refine + jd_optimize must return a full resume
     if (!Array.isArray(obj.experience) || obj.experience.length === 0) {
         return 'Resume came back with no work experience — nothing to render.';
     }
@@ -354,160 +382,94 @@ function validateShape(action, obj) {
 // PROMPT BUILDERS
 // ============================================
 
-function buildATSScorePrompt(resumeText) {
-    return `Analyze this resume for ATS compatibility and provide a detailed score.
+function buildOutlinePrompt(resumeText) {
+    return `List every work position in this resume, in the order they appear.
+Do NOT rewrite anything. Do NOT include bullet points. Headers only.
 
 RESUME:
 ---
 ${resumeText}
 ---
 
-Provide your analysis as JSON with this exact structure:
+Return ONLY this JSON:
 {
-    "overall": <number 0-100>,
-    "sections": [
-        {"name": "Contact Information", "score": <number>},
-        {"name": "Professional Summary", "score": <number>},
-        {"name": "Work Experience", "score": <number>},
-        {"name": "Skills Section", "score": <number>},
-        {"name": "Education", "score": <number>},
-        {"name": "Keywords & ATS", "score": <number>}
-    ],
-    "suggestions": [
-        {
-            "type": "critical|warning|tip",
-            "title": "<short title>",
-            "description": "<actionable suggestion>"
-        }
+    "jobs": [
+        {"title": "exact job title", "company": "exact company name", "duration": "exact date range"}
     ]
 }
 
-Be specific and actionable in your suggestions. Focus on the top 4-6 issues.
-Return ONLY the JSON, no additional text.`;
+Include EVERY position, including internships and short stints. Copy the titles,
+companies and dates exactly as written. Return ONLY the JSON.`;
 }
 
-function buildRefinePrompt(resumeText) {
-    return `Improve this resume to be more impactful and ATS-friendly.
+function buildHeaderPrompt(resumeText, jdText) {
+    const jdBlock = jdText ? `
 
-ORIGINAL RESUME:
----
-${resumeText}
----
-
-CRITICAL RULES - YOU MUST FOLLOW:
-1. **INCLUDE EVERY SINGLE JOB** - List ALL work experience from the original. Do NOT skip, summarize, or omit ANY position.
-2. **KEEP ALL BULLET POINTS** - For each job, include ALL achievements. Improve the wording but keep every point.
-3. **PRESERVE ALL DETAILS** - Names, dates, companies, titles, numbers must all be preserved exactly.
-4. **NO REDACTION** - Do NOT use placeholders like "X%" or "[Company]". Use the ACTUAL values from the resume.
-5. **COMPLETE OUTPUT** - Your response must include the ENTIRE resume, not a shortened version.
-
-IMPROVEMENTS TO MAKE:
-- Strengthen action verbs (Led, Built, Drove, Achieved, Scaled, Delivered)
-- Keep all existing metrics and numbers (do NOT remove them)
-- Make summary punchy with the person's actual achievements
-- Ensure each bullet starts with action verb
-- Organize skills by relevance
-
-Return the COMPLETE improved resume as JSON. Include EVERY job and EVERY bullet point:
-{
-    "name": "Actual full name from resume",
-    "title": "Their actual title | Key Expertise",
-    "contact": {
-        "email": "actual email",
-        "linkedin": "actual linkedin",
-        "location": "actual location",
-        "phone": "actual phone"
-    },
-    "summary": "2-3 sentence summary using their REAL achievements and metrics",
-    "experience": [
-        {
-            "title": "Actual Job Title",
-            "company": "Actual Company Name",
-            "duration": "Actual Date Range",
-            "bullets": ["All bullets for this job - improved but complete"]
-        }
-        // REPEAT FOR EVERY JOB IN THE ORIGINAL - DO NOT SKIP ANY
-    ],
-    "skills": ["All skills from original"],
-    "education": [
-        {
-            "degree": "Actual Degree",
-            "school": "Actual School",
-            "year": "Actual Year"
-        }
-    ]
-}
-
-FINAL CHECK: Count the jobs in your output. It MUST match the original resume. Do not truncate.
-Return ONLY valid JSON, no other text.`;
-}
-
-function buildJDOptimizePrompt(resumeText, jdText) {
-    return `Tailor this resume for the specific job description provided.
-
-ORIGINAL RESUME:
----
-${resumeText}
----
-
-JOB DESCRIPTION:
+JOB DESCRIPTION TO TARGET:
 ---
 ${jdText}
 ---
+Tailor the summary and skill ordering to this JD. Do not invent experience.` : '';
 
-CRITICAL RULES:
-1. **KEEP ALL JOBS** - Include EVERY position from the original resume
-2. **NO REDACTION** - Use ACTUAL names, numbers, dates - no placeholders
-3. **PRESERVE METRICS** - Keep all $, %, numbers exactly as they appear
-4. **COMPLETE OUTPUT** - Include the entire resume, not a summary
+    return `From this resume, produce ONLY the header sections. Do NOT include work experience bullets.
 
-OPTIMIZATION INSTRUCTIONS:
-1. Reorder bullets to prioritize JD-relevant achievements (but keep all bullets)
-2. Add keywords from JD naturally into existing content
-3. Adjust summary to highlight relevant experience
-4. Keep all original achievements - just reorder by relevance
+RESUME:
+---
+${resumeText}
+---${jdBlock}
 
-Return the COMPLETE optimized resume as JSON:
+Rules:
+- Use the person's ACTUAL name, email, phone, location, LinkedIn as written
+- No placeholders like "X%" or "[Company]" — real values only
+- Summary: 2-3 sentences using their real achievements and metrics
+- Skills: every skill from the original${jdText ? ', ordered by relevance to the JD' : ''}
+
+Return ONLY this JSON:
 {
-    "name": "Actual Name",
-    "title": "Title aligned with JD",
-    "contact": {
-        "email": "actual email",
-        "linkedin": "actual linkedin",
-        "location": "actual location",
-        "phone": "actual phone"
-    },
-    "summary": "Summary highlighting JD-relevant experience with REAL metrics",
-    "experience": [
-        {
-            "title": "Actual Job Title",
-            "company": "Actual Company",
-            "duration": "Actual Dates",
-            "bullets": ["All bullets - reordered by JD relevance"]
-        }
-        // INCLUDE ALL JOBS
-    ],
-    "skills": ["Skills reordered by JD relevance"],
-    "education": [
-        {
-            "degree": "Actual Degree",
-            "school": "Actual School",
-            "year": "Actual Year"
-        }
-    ],
-    "jdMatch": {
-        "score": 85,
-        "matchedKeywords": ["keywords found"],
-        "missingKeywords": ["keywords to add"],
-        "recommendations": ["specific suggestions"]
-    }
+    "name": "actual full name",
+    "title": "their actual title | key expertise",
+    "contact": {"email": "", "linkedin": "", "location": "", "phone": ""},
+    "summary": "",
+    "skills": [],
+    "education": [{"degree": "", "school": "", "year": ""}]${jdText ? `,
+    "jdMatch": {"score": 0, "matchedKeywords": [], "missingKeywords": [], "recommendations": []}` : ''}
+}`;
 }
 
-Return ONLY valid JSON, no other text.`;
+function buildJobPrompt(resumeText, job, jdText) {
+    const jdBlock = jdText ? `
+
+JOB DESCRIPTION TO TARGET:
+---
+${jdText}
+---
+Order the bullets so the most JD-relevant achievements come first, and work in
+JD keywords where they honestly fit. Keep every bullet.` : '';
+
+    return `Below is a full resume. Rewrite the bullet points for ONE position only.
+
+RESUME:
+---
+${resumeText}
+---
+
+THE POSITION TO WORK ON:
+${job.title} at ${job.company} (${job.duration})${jdBlock}
+
+Rules:
+- Return EVERY bullet that belongs to this position. Do not drop or merge any.
+- Start each bullet with a strong action verb (Led, Built, Drove, Scaled, Delivered)
+- Keep all existing numbers, percentages and currency figures exactly as written
+- Never substitute a placeholder for a real value
+- 1-2 lines per bullet
+- Ignore all other positions in the resume
+
+Return ONLY this JSON:
+{"bullets": ["improved bullet 1", "improved bullet 2"]}`;
 }
 
 function buildChatPrompt(currentResume, chatHistory) {
-    const historyText = chatHistory.map(msg => 
+    const historyText = (chatHistory || []).map(msg =>
         `${msg.role.toUpperCase()}: ${msg.content}`
     ).join('\n');
 
@@ -524,28 +486,23 @@ ${historyText}
 ---
 
 CRITICAL RULES:
-1. **KEEP ALL DATA** - Never redact or remove any information
-2. **PRESERVE ALL JOBS** - Include every position in your response
-3. **USE REAL VALUES** - No placeholders like "X%" - use actual numbers
-4. **COMPLETE OUTPUT** - Return the FULL resume, not just changed parts
+1. KEEP ALL DATA — never redact or remove any information
+2. PRESERVE ALL JOBS — include every position in your response
+3. USE REAL VALUES — no placeholders like "X%"
+4. COMPLETE OUTPUT — return the FULL resume, not just changed parts
 
 Based on the user's latest request, make the appropriate changes.
 
-Return your response as JSON:
+Return ONLY this JSON:
 {
-    "message": "Brief explanation of what you changed",
+    "message": "brief explanation of what you changed",
     "updatedResume": {
-        "name": "Keep actual name",
-        "title": "Keep or improve title",
-        "contact": {"email": "actual", "linkedin": "actual", "location": "actual", "phone": "actual"},
-        "summary": "Updated summary with real metrics",
-        "experience": [
-            // INCLUDE ALL JOBS - even ones you didn't change
-        ],
-        "skills": ["all skills"],
-        "education": [{"degree": "actual", "school": "actual", "year": "actual"}]
+        "name": "", "title": "",
+        "contact": {"email": "", "linkedin": "", "location": "", "phone": ""},
+        "summary": "",
+        "experience": [{"title": "", "company": "", "duration": "", "bullets": []}],
+        "skills": [],
+        "education": [{"degree": "", "school": "", "year": ""}]
     }
-}
-
-Return ONLY valid JSON.`;
+}`;
 }
